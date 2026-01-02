@@ -127,11 +127,18 @@ if [[ $PROFILES == *"jitsi"* ]]; then
     sudo mkdir -p "$DATA_DIR/jitsi/prosody"
     sudo mkdir -p "$DATA_DIR/jitsi/jicofo"
     sudo mkdir -p "$DATA_DIR/jitsi/jvb"
+    sudo mkdir -p "$DATA_DIR/jitsi/branding"
 fi
 
 # Copy Caddyfile
 info "Copying Caddyfile to $DATA_DIR/caddy/..."
 sudo cp "$SCRIPT_DIR/caddy/Caddyfile" "$DATA_DIR/caddy/Caddyfile"
+
+# Copy Jitsi branding
+if [[ $PROFILES == *"jitsi"* ]]; then
+    info "Copying Jitsi branding to $DATA_DIR/jitsi/branding/..."
+    sudo cp "$SCRIPT_DIR/jitsi-deploy/branding/watermark.svg" "$DATA_DIR/jitsi/branding/watermark.svg"
+fi
 
 echo
 echo "========================================="
@@ -151,6 +158,7 @@ echo "Service URLs:"
 echo
 echo "Next steps:"
 echo "  1. Review generated config files"
-echo "  2. Start the stack: docker compose up -d"
-echo "  3. Check logs: docker compose logs -f"
+[[ $PROFILES == *"jitsi"* ]] && echo "  2. Customize Jitsi logo: $DATA_DIR/jitsi/branding/watermark.svg"
+echo "  3. Start the stack: docker compose up -d"
+echo "  4. Check logs: docker compose logs -f"
 echo
