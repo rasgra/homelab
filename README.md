@@ -150,13 +150,16 @@ Only authenticated users can create meetings. Guests can join existing meetings 
 
 ```bash
 # Create a Jitsi user (can create meetings)
-docker compose exec prosody prosodyctl --config /config/prosody.cfg.lua register USERNAME meet.jitsi PASSWORD
+./jitsi-users.sh add USERNAME PASSWORD
 
 # List users
-docker compose exec prosody prosodyctl --config /config/prosody.cfg.lua mod_listusers
+./jitsi-users.sh list
+
+# Change password
+./jitsi-users.sh passwd USERNAME NEWPASSWORD
 
 # Delete a user
-docker compose exec prosody prosodyctl --config /config/prosody.cfg.lua unregister USERNAME meet.jitsi
+./jitsi-users.sh delete USERNAME
 ```
 
 ## Security
