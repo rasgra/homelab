@@ -1,6 +1,6 @@
 services:
   web-public:
-    image: jitsi/web:stable
+    image: jitsi/web:stable-10655
     restart: unless-stopped
     networks:
       - frontend
@@ -18,7 +18,7 @@ services:
       - jvb
 
   web:
-    image: jitsi/web:stable
+    image: jitsi/web:stable-10655
     restart: unless-stopped
     networks:
       - frontend
@@ -36,7 +36,7 @@ services:
       - jvb
 
   prosody:
-    image: jitsi/prosody:stable
+    image: jitsi/prosody:stable-10655
     restart: unless-stopped
     networks:
       - jitsi-backend
@@ -47,7 +47,7 @@ services:
       - /opt/stack/jitsi-data/prosody:/config
 
   jicofo:
-    image: jitsi/jicofo:stable
+    image: jitsi/jicofo:stable-10655
     restart: unless-stopped
     networks:
       - jitsi-backend
@@ -60,7 +60,7 @@ services:
       - prosody
 
   jvb:
-    image: jitsi/jvb:stable
+    image: jitsi/jvb:stable-10655
     restart: unless-stopped
     networks:
       - jitsi-backend
