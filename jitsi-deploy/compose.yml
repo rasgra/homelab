@@ -6,10 +6,11 @@ services:
       - frontend
       - jitsi-backend
     env_file:
+      - ../.env
       - ./.env
       - ./.env.secrets
     environment:
-      - PUBLIC_URL=https://meet.stormyra.se
+      - PUBLIC_URL=https://meet.${BASE_DOMAIN}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80"]
       interval: 30s
@@ -29,10 +30,11 @@ services:
       - frontend
       - jitsi-backend
     env_file:
+      - ../.env
       - ./.env
       - ./.env.secrets
     environment:
-      - PUBLIC_URL=https://adm.meet.stormyra.se
+      - PUBLIC_URL=https://adm.meet.${BASE_DOMAIN}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80"]
       interval: 30s
@@ -51,6 +53,7 @@ services:
     networks:
       - jitsi-backend
     env_file:
+      - ../.env
       - ./.env
       - ./.env.secrets
     healthcheck:
@@ -67,6 +70,7 @@ services:
     networks:
       - jitsi-backend
     env_file:
+      - ../.env
       - ./.env
       - ./.env.secrets
     healthcheck:
@@ -87,6 +91,7 @@ services:
     ports:
       - "10000:10000/udp"
     env_file:
+      - ../.env
       - ./.env
       - ./.env.secrets
     healthcheck:

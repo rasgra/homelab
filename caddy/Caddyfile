@@ -1,5 +1,5 @@
 {
-	email mail@stormyra.se
+	email mail@{$BASE_DOMAIN}
 	log {
 		output stdout
 		level DEBUG
@@ -29,7 +29,7 @@
 # Nextcloud
 # =========================
 
-nextcloud.stormyra.se {
+nextcloud.{$BASE_DOMAIN} {
 	import security_headers
 
 	reverse_proxy nextcloud:80 {
@@ -41,7 +41,7 @@ nextcloud.stormyra.se {
 # UISP
 # =========================
 
-uisp.stormyra.se {
+uisp.{$BASE_DOMAIN} {
 	import security_headers
 
 	# Admin UI – endast via WireGuard
@@ -75,7 +75,7 @@ uisp.stormyra.se {
 # Jitsi Meet
 # =========================
 
-adm.meet.stormyra.se {
+adm.meet.{$BASE_DOMAIN} {
 	
 	handle /http-bind* {
 		reverse_proxy web:80 {
@@ -95,7 +95,7 @@ adm.meet.stormyra.se {
 	}
 }
 
-meet.stormyra.se {
+meet.{$BASE_DOMAIN} {
 	
 	handle /http-bind* {
 		reverse_proxy web-public:80 {
