@@ -53,16 +53,55 @@ PROFILES=""
 [[ ! $ENABLE_JITSI =~ ^[Nn]$ ]] && PROFILES="${PROFILES}jitsi,"
 PROFILES=${PROFILES%,}  # Remove trailing comma
 
-# Generate secrets
+# Secret generation
 generate_secret() {
     openssl rand -base64 32 | tr -d '/+=' | cut -c1-32
 }
 
-info "Generating secrets..."
-MYSQL_PASSWORD=$(generate_secret)
-MYSQL_ROOT_PASSWORD=$(generate_secret)
-JICOFO_AUTH_PASSWORD=$(generate_secret)
-JVB_AUTH_PASSWORD=$(generate_secret)
+prompt_secret() {
+    local name="$1"
+    local var_name="$2"
+    local value=""
+
+    read -p "  $name: " -s value
+    echo
+    if [[ -z "$value" ]]; then
+        value=$(generate_secret)
+        echo "    (generated)"
+    fi
+    eval "$var_name='$value'"
+}
+
+echo
+read -p "Generate random secrets? [Y/n] " -n 1 -r GENERATE_SECRETS
+echo
+
+if [[ $GENERATE_SECRETS =~ ^[Nn]$ ]]; then
+    echo
+    echo "Enter secrets (leave empty to generate):"
+
+    if [[ $PROFILES == *"nextcloud"* ]]; then
+        echo "Nextcloud/MariaDB:"
+        prompt_secret "MySQL password" MYSQL_PASSWORD
+        prompt_secret "MySQL root password" MYSQL_ROOT_PASSWORD
+    fi
+
+    if [[ $PROFILES == *"jitsi"* ]]; then
+        echo "Jitsi:"
+        prompt_secret "Jicofo auth password" JICOFO_AUTH_PASSWORD
+        prompt_secret "JVB auth password" JVB_AUTH_PASSWORD
+    fi
+else
+    info "Generating secrets..."
+    if [[ $PROFILES == *"nextcloud"* ]]; then
+        MYSQL_PASSWORD=$(generate_secret)
+        MYSQL_ROOT_PASSWORD=$(generate_secret)
+    fi
+    if [[ $PROFILES == *"jitsi"* ]]; then
+        JICOFO_AUTH_PASSWORD=$(generate_secret)
+        JVB_AUTH_PASSWORD=$(generate_secret)
+    fi
+fi
 
 # Create root .env
 info "Creating root .env..."
