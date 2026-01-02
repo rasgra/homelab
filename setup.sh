@@ -140,6 +140,51 @@ if [[ $PROFILES == *"jitsi"* ]]; then
     sudo cp "$SCRIPT_DIR/jitsi-deploy/branding/watermark.svg" "$DATA_DIR/jitsi/branding/watermark.svg"
 fi
 
+# Set permissions
+info "Setting permissions..."
+
+# Caddy: runs as root, config files read-only
+sudo chown -R root:root "$DATA_DIR/caddy"
+sudo chmod 755 "$DATA_DIR/caddy"
+sudo chmod 644 "$DATA_DIR/caddy/Caddyfile"
+sudo chmod 755 "$DATA_DIR/caddy/data" "$DATA_DIR/caddy/config"
+
+if [[ $PROFILES == *"nextcloud"* ]]; then
+    # Nextcloud: runs as www-data (33:33)
+    sudo chown -R 33:33 "$DATA_DIR/nextcloud/html"
+    sudo chown -R 33:33 "$DATA_DIR/nextcloud/data"
+    sudo chmod 750 "$DATA_DIR/nextcloud/html" "$DATA_DIR/nextcloud/data"
+
+    # MariaDB: runs as mysql (999:999)
+    sudo chown -R 999:999 "$DATA_DIR/nextcloud/db"
+    sudo chmod 750 "$DATA_DIR/nextcloud/db"
+
+    # Redis: runs as redis (999:999)
+    sudo chown -R 999:999 "$DATA_DIR/nextcloud/redis"
+    sudo chmod 750 "$DATA_DIR/nextcloud/redis"
+
+    # Secret files: restrict access
+    chmod 600 "$SCRIPT_DIR/nextcloud/.env.secrets"
+fi
+
+if [[ $PROFILES == *"uisp"* ]]; then
+    # UISP: runs as root
+    sudo chown -R root:root "$DATA_DIR/uisp"
+    sudo chmod 755 "$DATA_DIR/uisp/data" "$DATA_DIR/uisp/logs"
+fi
+
+if [[ $PROFILES == *"jitsi"* ]]; then
+    # Jitsi: runs as root
+    sudo chown -R root:root "$DATA_DIR/jitsi"
+    sudo chmod 755 "$DATA_DIR/jitsi/web" "$DATA_DIR/jitsi/web-public"
+    sudo chmod 755 "$DATA_DIR/jitsi/prosody" "$DATA_DIR/jitsi/jicofo" "$DATA_DIR/jitsi/jvb"
+    sudo chmod 755 "$DATA_DIR/jitsi/branding"
+    sudo chmod 644 "$DATA_DIR/jitsi/branding/watermark.svg"
+
+    # Secret files: restrict access
+    chmod 600 "$SCRIPT_DIR/jitsi-deploy/.env.secrets"
+fi
+
 echo
 echo "========================================="
 echo -e "${GREEN}  Setup complete!${NC}"
