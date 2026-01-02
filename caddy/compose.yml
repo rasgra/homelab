@@ -9,6 +9,11 @@ services:
       - "80:80"
       - "443:443"
       - "443:443/udp"   # for HTTP/3 (optional)
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     volumes:
       - /opt/stack/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - /opt/stack/caddy/data:/data
