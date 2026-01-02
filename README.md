@@ -144,8 +144,24 @@ docker compose pull && docker compose up -d
 | `uisp-backend` | Internal (UISP) |
 | `jitsi-backend` | Internal (Jitsi components) |
 
+## Jitsi User Management
+
+Only authenticated users can create meetings. Guests can join existing meetings but must wait in the lobby for moderator approval.
+
+```bash
+# Create a Jitsi user (can create meetings)
+docker compose exec prosody prosodyctl --config /config/prosody.cfg.lua register USERNAME meet.jitsi PASSWORD
+
+# List users
+docker compose exec prosody prosodyctl --config /config/prosody.cfg.lua mod_listusers
+
+# Delete a user
+docker compose exec prosody prosodyctl --config /config/prosody.cfg.lua unregister USERNAME meet.jitsi
+```
+
 ## Security
 
 - UISP admin (`/nms/*`) restricted to VPN `172.16.1.0/24`
+- Jitsi: only authenticated users can create meetings
 - Automatic HTTPS via Caddy with Let's Encrypt
 - Backend networks are isolated
