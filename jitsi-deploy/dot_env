@@ -1,9 +1,10 @@
 # --- XMPP core (make explicit) ---
-XMPP_DOMAIN=ADM_URL
-XMPP_AUTH_DOMAIN=auth.ADM_URL
-XMPP_INTERNAL_MUC_DOMAIN=internal-muc.adm.ADM_URL
-XMPP_MUC_DOMAIN=muc.adm.ADM_URL
-XMPP_GUEST_DOMAIN=GUEST_URL
+# These use BASE_DOMAIN from root .env
+XMPP_DOMAIN=adm.meet.${BASE_DOMAIN}
+XMPP_AUTH_DOMAIN=auth.adm.meet.${BASE_DOMAIN}
+XMPP_INTERNAL_MUC_DOMAIN=internal-muc.adm.meet.${BASE_DOMAIN}
+XMPP_MUC_DOMAIN=muc.adm.meet.${BASE_DOMAIN}
+XMPP_GUEST_DOMAIN=meet.${BASE_DOMAIN}
 
 # Tell web where to find prosody/bosh
 XMPP_SERVER=prosody
