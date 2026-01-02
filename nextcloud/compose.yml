@@ -20,7 +20,7 @@ services:
       - /mnt/2tb/nextcloud-data:/var/www/html/data
 
   nextcloud-cron:
-    image: nextcloud:apache
+    image: nextcloud-custom:ffmpeg
     container_name: nextcloud-cron
     restart: unless-stopped
     networks: [nextcloud-backend]
