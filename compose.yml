@@ -1,0 +1,31 @@
+name: stormyra-stack
+
+networks:
+  frontend:
+    driver: bridge
+    external: false
+    internal: false
+    name: frontend
+  uisp-backend:
+    driver: bridge
+    external: false
+    internal: true
+    name: uisp-backend
+  jitsi-backend:
+    driver: bridge
+    external: false
+    internal: false
+    name: jitsi-backend
+  nextcloud-backend:
+    driver: bridge
+    external: false
+    internal: true
+    name: nextcloud-backend
+
+include:
+  - ./caddy/compose.yml
+  - ./nextcloud/compose.yml
+  - ./uisp/compose.yml
+  - ./jitsi-deploy/compose.yml
+
+

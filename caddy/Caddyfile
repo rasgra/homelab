@@ -1,0 +1,116 @@
+{
+	email mail@stormyra.se
+	log {
+		output stdout
+		level DEBUG
+	}
+}
+
+# =========================
+# Reusable snippets
+# =========================
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "no-referrer"
+	}
+}
+
+(proxy_headers) {
+	header_up X-Forwarded-Proto {scheme}
+	header_up X-Forwarded-Host {host}
+	header_up X-Forwarded-For {remote}
+}
+
+# =========================
+# Nextcloud
+# =========================
+
+nextcloud.stormyra.se {
+	import security_headers
+
+	reverse_proxy nextcloud:80 {
+		import proxy_headers
+	}
+}
+
+# =========================
+# UISP
+# =========================
+
+uisp.stormyra.se {
+	import security_headers
+
+	# Admin UI – endast via WireGuard
+	@admin path /nms* /nms/*
+	@wg remote_ip 172.16.1.0/24
+
+	handle @admin {
+		handle @wg {
+			reverse_proxy uisp:443 {
+				transport http {
+					tls_insecure_skip_verify
+				}
+				import proxy_headers
+			}
+		}
+		respond "Admin access requires VPN" 403
+	}
+
+	# Publika delar av UISP
+	handle {
+		reverse_proxy uisp:443 {
+			transport http {
+				tls_insecure_skip_verify
+			}
+			import proxy_headers
+		}
+	}
+}
+
+# =========================
+# Jitsi Meet
+# =========================
+
+adm.meet.stormyra.se {
+	
+	handle /http-bind* {
+		reverse_proxy web:80 {
+			header_up Host {host}
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Port 443
+		}
+	}
+
+	# Everything else (root UI, config.js, etc.)
+	handle {
+		reverse_proxy web:80 {
+			header_up Host {host}
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Port 443
+		}
+	}
+}
+
+meet.stormyra.se {
+	
+	handle /http-bind* {
+		reverse_proxy web-public:80 {
+			header_up Host {host}
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Port 443
+		}
+	}
+
+	# Everything else (root UI, config.js, etc.)
+	handle {
+		reverse_proxy web-public:80 {
+			header_up Host {host}
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Port 443
+		}
+	}
+}

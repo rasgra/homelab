@@ -1,0 +1,84 @@
+services:
+  web-public:
+    image: jitsi/web:stable
+    restart: unless-stopped
+    networks:
+      - frontend
+      - jitsi-backend
+    env_file:
+      - ./.env
+      - ./.env.secrets
+    environment:
+      - PUBLIC_URL=https://meet.stormyra.se
+    volumes:
+      - /opt/stack/jitsi-data/web-public:/config
+    depends_on:
+      - prosody
+      - jicofo
+      - jvb
+
+  web:
+    image: jitsi/web:stable
+    restart: unless-stopped
+    networks:
+      - frontend
+      - jitsi-backend
+    env_file:
+      - ./.env
+      - ./.env.secrets
+    environment:
+      - PUBLIC_URL=https://adm.meet.stormyra.se
+    volumes:
+      - /opt/stack/jitsi-data/web:/config
+    depends_on:
+      - prosody
+      - jicofo
+      - jvb
+
+  prosody:
+    image: jitsi/prosody:stable
+    restart: unless-stopped
+    networks:
+      - jitsi-backend
+    env_file:
+      - ./.env
+      - ./.env.secrets
+    volumes:
+      - /opt/stack/jitsi-data/prosody:/config
+
+  jicofo:
+    image: jitsi/jicofo:stable
+    restart: unless-stopped
+    networks:
+      - jitsi-backend
+    env_file:
+      - ./.env
+      - ./.env.secrets
+    volumes:
+      - /opt/stack/jitsi-data/jicofo:/config
+    depends_on:
+      - prosody
+
+  jvb:
+    image: jitsi/jvb:stable
+    restart: unless-stopped
+    networks:
+      - jitsi-backend
+    ports:
+      - "10000:10000/udp"
+    env_file:
+      - ./.env
+      - ./.env.secrets
+    volumes:
+      - /opt/stack/jitsi-data/jvb:/config
+    depends_on:
+      - prosody
+
+networks:
+  frontend:
+    external: true
+    name: frontend
+  jitsi-backend:
+    external: true
+    name: jitsi-backend
+

@@ -1,0 +1,15 @@
+services:
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    networks:
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # for HTTP/3 (optional)
+    volumes:
+      - /opt/stack/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/stack/caddy/data:/data
+      - /opt/stack/caddy/config:/config

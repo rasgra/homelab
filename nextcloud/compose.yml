@@ -1,0 +1,67 @@
+services:
+  nextcloud:
+    build: .
+    image: nextcloud-custom:ffmpeg
+    container_name: nextcloud
+    restart: unless-stopped
+    networks: [frontend, nextcloud-backend]
+    env_file:
+      - ./.env
+      - ./.env.secrets 
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Nextcloud app + config
+      - /opt/stack/nextcloud/html:/var/www/html
+      # Your existing data directory (bind-mount the real data)
+      - /mnt/2tb/nextcloud-data:/var/www/html/data
+
+  nextcloud-cron:
+    image: nextcloud:apache
+    container_name: nextcloud-cron
+    restart: unless-stopped
+    networks: [nextcloud-backend]
+    depends_on: [nextcloud]
+    entrypoint: /cron.sh
+    env_file:
+      - ./.env
+    volumes:
+      - /opt/stack/nextcloud/html:/var/www/html
+      - /mnt/2tb/nextcloud-data:/var/www/html/data
+
+  mariadb:
+    image: mariadb:10.11
+    container_name: mariadb
+    restart: unless-stopped
+    networks: [nextcloud-backend]
+    env_file:
+      - ./.env
+      - ./.env.secrets 
+    command:
+      - --transaction-isolation=READ-COMMITTED
+      - --binlog-format=ROW
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - /opt/stack/nextcloud/db:/var/lib/mysql
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    networks: [nextcloud-backend]
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - /opt/stack/nextcloud/redis:/data
+ 

@@ -1,0 +1,34 @@
+# --- XMPP core (make explicit) ---
+XMPP_DOMAIN=ADM_URL
+XMPP_AUTH_DOMAIN=auth.ADM_URL
+XMPP_INTERNAL_MUC_DOMAIN=internal-muc.adm.ADM_URL
+XMPP_MUC_DOMAIN=muc.adm.ADM_URL
+XMPP_GUEST_DOMAIN=GUEST_URL
+
+# Tell web where to find prosody/bosh
+XMPP_SERVER=prosody
+XMPP_BOSH_URL_BASE=http://prosody:5280
+
+# --- Core ---
+TZ=Europe/Stockholm
+
+# --- Authentication (internal, REQUIRED) ---
+ENABLE_AUTH=1
+AUTH_TYPE=internal
+ENABLE_GUESTS=1
+ENABLE_LOBBY=1
+
+# --- Media ---
+JVB_PORT=10000
+JVB_TCP_HARVESTER_DISABLED=true
+
+# --- Behind reverse proxy (Caddy terminates TLS) ---
+DISABLE_HTTPS=1
+ENABLE_HTTP_REDIRECT=0
+
+# Optional but recommended if your public IP is stable
+# JVB_ADVERTISE_IPS=31.xxx.xxx.xxx
+
+# --- Docker ---
+DOCKER_NETWORK_NAME=jitsi-backend
+
