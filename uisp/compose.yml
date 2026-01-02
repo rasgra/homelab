@@ -1,5 +1,6 @@
 services:
   uisp:
+    profiles: ["uisp"]
     image: nico640/docker-unms@sha256:b428e7366086528a343e407bc8eb7944a192945b62d00cdad5e2b3ca865df69f
     container_name: uisp
     restart: unless-stopped

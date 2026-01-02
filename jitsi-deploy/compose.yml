@@ -1,5 +1,6 @@
 services:
   web-public:
+    profiles: ["jitsi"]
     image: jitsi/web:stable-10655
     restart: unless-stopped
     networks:
@@ -24,6 +25,7 @@ services:
       - jvb
 
   web:
+    profiles: ["jitsi"]
     image: jitsi/web:stable-10655
     restart: unless-stopped
     networks:
@@ -48,6 +50,7 @@ services:
       - jvb
 
   prosody:
+    profiles: ["jitsi"]
     image: jitsi/prosody:stable-10655
     restart: unless-stopped
     networks:
@@ -65,6 +68,7 @@ services:
       - ${DATA_DIR}/jitsi/prosody:/config
 
   jicofo:
+    profiles: ["jitsi"]
     image: jitsi/jicofo:stable-10655
     restart: unless-stopped
     networks:
@@ -84,6 +88,7 @@ services:
       - prosody
 
   jvb:
+    profiles: ["jitsi"]
     image: jitsi/jvb:stable-10655
     restart: unless-stopped
     networks:

@@ -3,3 +3,7 @@ BASE_DOMAIN=stormyra.se
 
 # Data directory for all persistent storage
 DATA_DIR=/opt/stack
+
+# Services to enable (comma-separated: nextcloud,uisp,jitsi)
+# Caddy always runs as it's the reverse proxy
+COMPOSE_PROFILES=nextcloud,uisp,jitsi
