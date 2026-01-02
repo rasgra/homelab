@@ -1,2 +1,5 @@
 # Base domain for all services
 BASE_DOMAIN=stormyra.se
+
+# Data directory for all persistent storage
+DATA_DIR=/opt/stack

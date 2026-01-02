@@ -17,7 +17,7 @@ services:
       timeout: 5s
       retries: 3
     volumes:
-      - /opt/stack/jitsi-data/web-public:/config
+      - ${DATA_DIR}/jitsi/web-public:/config
     depends_on:
       - prosody
       - jicofo
@@ -41,7 +41,7 @@ services:
       timeout: 5s
       retries: 3
     volumes:
-      - /opt/stack/jitsi-data/web:/config
+      - ${DATA_DIR}/jitsi/web:/config
     depends_on:
       - prosody
       - jicofo
@@ -62,7 +62,7 @@ services:
       timeout: 5s
       retries: 3
     volumes:
-      - /opt/stack/jitsi-data/prosody:/config
+      - ${DATA_DIR}/jitsi/prosody:/config
 
   jicofo:
     image: jitsi/jicofo:stable-10655
@@ -79,7 +79,7 @@ services:
       timeout: 5s
       retries: 3
     volumes:
-      - /opt/stack/jitsi-data/jicofo:/config
+      - ${DATA_DIR}/jitsi/jicofo:/config
     depends_on:
       - prosody
 
@@ -100,7 +100,7 @@ services:
       timeout: 5s
       retries: 3
     volumes:
-      - /opt/stack/jitsi-data/jvb:/config
+      - ${DATA_DIR}/jitsi/jvb:/config
     depends_on:
       - prosody
 

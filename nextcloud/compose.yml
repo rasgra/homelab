@@ -20,10 +20,8 @@ services:
       timeout: 10s
       retries: 5
     volumes:
-      # Nextcloud app + config
-      - /opt/stack/nextcloud/html:/var/www/html
-      # Your existing data directory (bind-mount the real data)
-      - /mnt/2tb/nextcloud-data:/var/www/html/data
+      - ${DATA_DIR}/nextcloud/html:/var/www/html
+      - ${DATA_DIR}/nextcloud/data:/var/www/html/data
 
   nextcloud-cron:
     image: nextcloud-custom:ffmpeg
@@ -36,8 +34,8 @@ services:
       - ../.env
       - ./.env
     volumes:
-      - /opt/stack/nextcloud/html:/var/www/html
-      - /mnt/2tb/nextcloud-data:/var/www/html/data
+      - ${DATA_DIR}/nextcloud/html:/var/www/html
+      - ${DATA_DIR}/nextcloud/data:/var/www/html/data
 
   mariadb:
     image: mariadb:10.11
@@ -45,8 +43,9 @@ services:
     restart: unless-stopped
     networks: [nextcloud-backend]
     env_file:
+      - ../.env
       - ./.env
-      - ./.env.secrets 
+      - ./.env.secrets
     command:
       - --transaction-isolation=READ-COMMITTED
       - --binlog-format=ROW
@@ -56,13 +55,15 @@ services:
       timeout: 5s
       retries: 10
     volumes:
-      - /opt/stack/nextcloud/db:/var/lib/mysql
+      - ${DATA_DIR}/nextcloud/db:/var/lib/mysql
 
   redis:
     image: redis:7-alpine
     container_name: redis
     restart: unless-stopped
     networks: [nextcloud-backend]
+    env_file:
+      - ../.env
     command: redis-server --save 60 1 --loglevel warning
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -70,5 +71,5 @@ services:
       timeout: 3s
       retries: 10
     volumes:
-      - /opt/stack/nextcloud/redis:/data
+      - ${DATA_DIR}/nextcloud/redis:/data
  

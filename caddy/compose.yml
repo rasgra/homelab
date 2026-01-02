@@ -17,6 +17,6 @@ services:
       timeout: 5s
       retries: 3
     volumes:
-      - /opt/stack/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - /opt/stack/caddy/data:/data
-      - /opt/stack/caddy/config:/config
+      - ${DATA_DIR}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${DATA_DIR}/caddy/data:/data
+      - ${DATA_DIR}/caddy/config:/config
