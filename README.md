@@ -24,11 +24,11 @@ If you prefer manual setup or need to modify existing configuration:
 
 | File | Template | Description |
 |------|----------|-------------|
-| `.env` | `dot_env` | Root config (domain, data dir, profiles) |
-| `nextcloud/.env` | `nextcloud/dot_env` | Nextcloud settings |
-| `nextcloud/.env.secrets` | `nextcloud/dot_env.secrets` | Database passwords |
-| `jitsi-deploy/.env` | `jitsi-deploy/dot_env` | Jitsi settings |
-| `jitsi-deploy/.env.secrets` | `jitsi-deploy/dot_env.secrets` | Jitsi auth passwords |
+| `.env` | `.env.example` | Root config (domain, data dir, profiles) |
+| `nextcloud/.env` | `nextcloud/.env.example` | Nextcloud settings |
+| `nextcloud/.env.secrets` | `nextcloud/.env.secrets.example` | Database passwords |
+| `jitsi-deploy/.env` | `jitsi-deploy/.env.example` | Jitsi settings |
+| `jitsi-deploy/.env.secrets` | `jitsi-deploy/.env.secrets.example` | Jitsi auth passwords |
 
 ### Root Configuration (`.env`)
 
