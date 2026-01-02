@@ -19,6 +19,7 @@ services:
       retries: 3
     volumes:
       - ${DATA_DIR}/jitsi/web-public:/config
+      - ${DATA_DIR}/jitsi/branding/watermark.svg:/usr/share/jitsi-meet/images/watermark.svg:ro
     depends_on:
       - prosody
       - jicofo
@@ -44,6 +45,7 @@ services:
       retries: 3
     volumes:
       - ${DATA_DIR}/jitsi/web:/config
+      - ${DATA_DIR}/jitsi/branding/watermark.svg:/usr/share/jitsi-meet/images/watermark.svg:ro
     depends_on:
       - prosody
       - jicofo
