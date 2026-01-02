@@ -81,7 +81,7 @@ EOF
 # Create nextcloud .env files
 if [[ $PROFILES == *"nextcloud"* ]]; then
     info "Creating nextcloud/.env..."
-    sed "s/\${BASE_DOMAIN}/$DOMAIN/g" "$SCRIPT_DIR/nextcloud/dot_env" > "$SCRIPT_DIR/nextcloud/.env"
+    sed "s/\${BASE_DOMAIN}/$DOMAIN/g" "$SCRIPT_DIR/nextcloud/.env.example" > "$SCRIPT_DIR/nextcloud/.env"
 
     info "Creating nextcloud/.env.secrets..."
     cat > "$SCRIPT_DIR/nextcloud/.env.secrets" << EOF
@@ -93,7 +93,7 @@ fi
 # Create jitsi .env files
 if [[ $PROFILES == *"jitsi"* ]]; then
     info "Creating jitsi-deploy/.env..."
-    sed "s/\${BASE_DOMAIN}/$DOMAIN/g" "$SCRIPT_DIR/jitsi-deploy/dot_env" > "$SCRIPT_DIR/jitsi-deploy/.env"
+    sed "s/\${BASE_DOMAIN}/$DOMAIN/g" "$SCRIPT_DIR/jitsi-deploy/.env.example" > "$SCRIPT_DIR/jitsi-deploy/.env"
 
     info "Creating jitsi-deploy/.env.secrets..."
     cat > "$SCRIPT_DIR/jitsi-deploy/.env.secrets" << EOF
