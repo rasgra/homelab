@@ -74,11 +74,3 @@ services:
     depends_on:
       - prosody
 
-networks:
-  frontend:
-    external: true
-    name: frontend
-  jitsi-backend:
-    external: true
-    name: jitsi-backend
-
