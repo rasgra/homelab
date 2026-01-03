@@ -143,10 +143,14 @@ sudo mkdir -p "$DATA_DIR/caddy/data"
 sudo mkdir -p "$DATA_DIR/caddy/config"
 
 if [[ $PROFILES == *"nextcloud"* ]]; then
-    sudo mkdir -p "$DATA_DIR/nextcloud/html"
-    sudo mkdir -p "$DATA_DIR/nextcloud/data"
-    sudo mkdir -p "$DATA_DIR/nextcloud/db"
-    sudo mkdir -p "$DATA_DIR/nextcloud/redis"
+    if [[ -d "$DATA_DIR/nextcloud/html" ]]; then
+        info "Nextcloud html directory exists, skipping (existing installation)"
+    else
+        sudo mkdir -p "$DATA_DIR/nextcloud/html"
+        sudo mkdir -p "$DATA_DIR/nextcloud/data"
+        sudo mkdir -p "$DATA_DIR/nextcloud/db"
+        sudo mkdir -p "$DATA_DIR/nextcloud/redis"
+    fi
 fi
 
 if [[ $PROFILES == *"uisp"* ]]; then
@@ -183,21 +187,26 @@ sudo chmod 644 "$DATA_DIR/caddy/Caddyfile"
 sudo chmod 755 "$DATA_DIR/caddy/data" "$DATA_DIR/caddy/config"
 
 if [[ $PROFILES == *"nextcloud"* ]]; then
-    # Nextcloud: runs as www-data (33:33)
-    sudo chown -R 33:33 "$DATA_DIR/nextcloud/html"
-    sudo chown -R 33:33 "$DATA_DIR/nextcloud/data"
-    sudo chmod 750 "$DATA_DIR/nextcloud/html" "$DATA_DIR/nextcloud/data"
-
-    # MariaDB: runs as mysql (999:999)
-    sudo chown -R 999:999 "$DATA_DIR/nextcloud/db"
-    sudo chmod 750 "$DATA_DIR/nextcloud/db"
-
-    # Redis: runs as redis (999:999)
-    sudo chown -R 999:999 "$DATA_DIR/nextcloud/redis"
-    sudo chmod 750 "$DATA_DIR/nextcloud/redis"
-
     # Secret files: restrict access
     chmod 600 "$SCRIPT_DIR/nextcloud/.env.secrets"
+
+    # Only set permissions for fresh installs (skip if config.php exists)
+    if [[ ! -f "$DATA_DIR/nextcloud/html/config/config.php" ]]; then
+        # Nextcloud: runs as www-data (33:33)
+        sudo chown -R 33:33 "$DATA_DIR/nextcloud/html"
+        sudo chown -R 33:33 "$DATA_DIR/nextcloud/data"
+        sudo chmod 750 "$DATA_DIR/nextcloud/html" "$DATA_DIR/nextcloud/data"
+
+        # MariaDB: runs as mysql (999:999)
+        sudo chown -R 999:999 "$DATA_DIR/nextcloud/db"
+        sudo chmod 750 "$DATA_DIR/nextcloud/db"
+
+        # Redis: runs as redis (999:999)
+        sudo chown -R 999:999 "$DATA_DIR/nextcloud/redis"
+        sudo chmod 750 "$DATA_DIR/nextcloud/redis"
+    else
+        info "Nextcloud config.php exists, skipping permission changes"
+    fi
 fi
 
 if [[ $PROFILES == *"uisp"* ]]; then
@@ -239,4 +248,6 @@ echo "  1. Review generated config files"
 [[ $PROFILES == *"jitsi"* ]] && echo "  2. Customize Jitsi logo: $DATA_DIR/jitsi/branding/watermark.svg"
 echo "  3. Start the stack: docker compose up -d"
 echo "  4. Check logs: docker compose logs -f"
+echo
+[[ $PROFILES == *"nextcloud"* ]] && echo "Migrating existing Nextcloud? See README.md for steps."
 echo
