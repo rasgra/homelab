@@ -104,6 +104,59 @@ sudo rmdir /opt/stack/nextcloud/data
 sudo ln -s /mnt/large-disk/nextcloud-data /opt/stack/nextcloud/data
 ```
 
+### Migrating Existing Nextcloud Installation
+
+#### Step 1: Export from old server
+
+```bash
+# Export database
+docker compose exec mariadb mariadb-dump -u root -p nextcloud > nextcloud-dump.sql
+
+# Export app list
+./nextcloud-export-apps.sh > apps.txt
+
+# Note your data directory location
+```
+
+#### Step 2: Setup new server
+
+```bash
+./setup.sh
+docker compose up -d
+# Wait for initial setup to complete
+docker compose logs -f nextcloud
+```
+
+#### Step 3: Import database
+
+```bash
+# Stop nextcloud
+docker compose stop nextcloud nextcloud-cron
+
+# Import dump (use password from nextcloud/.env.secrets)
+docker compose exec -T mariadb mariadb -u root -p nextcloud < nextcloud-dump.sql
+
+# Start nextcloud
+docker compose start nextcloud nextcloud-cron
+```
+
+#### Step 4: Install apps
+
+```bash
+./nextcloud-import-apps.sh apps.txt
+```
+
+#### Step 5: Copy user data (optional)
+
+```bash
+sudo cp -a /old/data/* /opt/stack/nextcloud/data/
+sudo chown -R 33:33 /opt/stack/nextcloud/data
+
+# Update Nextcloud
+docker compose exec -u www-data nextcloud php occ maintenance:data-fingerprint
+docker compose exec -u www-data nextcloud php occ files:scan --all
+```
+
 ## Service URLs
 
 | Service | URL |
