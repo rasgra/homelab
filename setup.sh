@@ -63,9 +63,17 @@ prompt_secret() {
     local var_name="$2"
     local value=""
 
-    read -p "  $name: " -s value
+    read -p "  $name - generate random? [Y/n] " -n 1 -r generate
     echo
-    if [[ -z "$value" ]]; then
+    if [[ $generate =~ ^[Nn]$ ]]; then
+        read -p "    Enter $name: " -s value
+        echo
+        while [[ -z "$value" ]]; do
+            echo "    Password cannot be empty"
+            read -p "    Enter $name: " -s value
+            echo
+        done
+    else
         value=$(generate_secret)
         echo "    (generated)"
     fi
@@ -73,34 +81,20 @@ prompt_secret() {
 }
 
 echo
-read -p "Generate random secrets? [Y/n] " -n 1 -r GENERATE_SECRETS
-echo
+echo "Configure secrets:"
 
-if [[ $GENERATE_SECRETS =~ ^[Nn]$ ]]; then
+if [[ $PROFILES == *"nextcloud"* ]]; then
     echo
-    echo "Enter secrets (leave empty to generate):"
+    echo "Nextcloud/MariaDB:"
+    prompt_secret "MySQL password" MYSQL_PASSWORD
+    prompt_secret "MySQL root password" MYSQL_ROOT_PASSWORD
+fi
 
-    if [[ $PROFILES == *"nextcloud"* ]]; then
-        echo "Nextcloud/MariaDB:"
-        prompt_secret "MySQL password" MYSQL_PASSWORD
-        prompt_secret "MySQL root password" MYSQL_ROOT_PASSWORD
-    fi
-
-    if [[ $PROFILES == *"jitsi"* ]]; then
-        echo "Jitsi:"
-        prompt_secret "Jicofo auth password" JICOFO_AUTH_PASSWORD
-        prompt_secret "JVB auth password" JVB_AUTH_PASSWORD
-    fi
-else
-    info "Generating secrets..."
-    if [[ $PROFILES == *"nextcloud"* ]]; then
-        MYSQL_PASSWORD=$(generate_secret)
-        MYSQL_ROOT_PASSWORD=$(generate_secret)
-    fi
-    if [[ $PROFILES == *"jitsi"* ]]; then
-        JICOFO_AUTH_PASSWORD=$(generate_secret)
-        JVB_AUTH_PASSWORD=$(generate_secret)
-    fi
+if [[ $PROFILES == *"jitsi"* ]]; then
+    echo
+    echo "Jitsi:"
+    prompt_secret "Jicofo auth password" JICOFO_AUTH_PASSWORD
+    prompt_secret "JVB auth password" JVB_AUTH_PASSWORD
 fi
 
 # Create root .env
