@@ -72,6 +72,21 @@ uisp.{$BASE_DOMAIN} {
 }
 
 # =========================
+# UniFi Controller
+# =========================
+
+unifi.{$BASE_DOMAIN} {
+	import security_headers
+
+	reverse_proxy unifi:8443 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+		import proxy_headers
+	}
+}
+
+# =========================
 # Jitsi Meet
 # =========================
 

@@ -45,12 +45,15 @@ read -p "  Enable UISP? [Y/n] " -n 1 -r ENABLE_UISP
 echo
 read -p "  Enable Jitsi? [Y/n] " -n 1 -r ENABLE_JITSI
 echo
+read -p "  Enable UniFi Controller? [Y/n] " -n 1 -r ENABLE_UNIFI
+echo
 
 # Build COMPOSE_PROFILES
 PROFILES=""
 [[ ! $ENABLE_NEXTCLOUD =~ ^[Nn]$ ]] && PROFILES="${PROFILES}nextcloud,"
 [[ ! $ENABLE_UISP =~ ^[Nn]$ ]] && PROFILES="${PROFILES}uisp,"
 [[ ! $ENABLE_JITSI =~ ^[Nn]$ ]] && PROFILES="${PROFILES}jitsi,"
+[[ ! $ENABLE_UNIFI =~ ^[Nn]$ ]] && PROFILES="${PROFILES}unifi,"
 PROFILES=${PROFILES%,}  # Remove trailing comma
 
 # Secret generation
@@ -106,7 +109,7 @@ BASE_DOMAIN=$DOMAIN
 # Data directory for all persistent storage
 DATA_DIR=$DATA_DIR
 
-# Services to enable (comma-separated: nextcloud,uisp,jitsi)
+# Services to enable (comma-separated: nextcloud,uisp,jitsi,unifi)
 # Caddy always runs as it's the reverse proxy
 COMPOSE_PROFILES=$PROFILES
 EOF
@@ -165,6 +168,10 @@ if [[ $PROFILES == *"jitsi"* ]]; then
     sudo mkdir -p "$DATA_DIR/jitsi/jicofo"
     sudo mkdir -p "$DATA_DIR/jitsi/jvb"
     sudo mkdir -p "$DATA_DIR/jitsi/branding"
+fi
+
+if [[ $PROFILES == *"unifi"* ]]; then
+    sudo mkdir -p "$DATA_DIR/unifi/data"
 fi
 
 # Copy Caddyfile
@@ -227,6 +234,12 @@ if [[ $PROFILES == *"jitsi"* ]]; then
     chmod 600 "$SCRIPT_DIR/jitsi-deploy/.env.secrets"
 fi
 
+if [[ $PROFILES == *"unifi"* ]]; then
+    # UniFi: runs as unifi user (999:999)
+    sudo chown -R 999:999 "$DATA_DIR/unifi/data"
+    sudo chmod 750 "$DATA_DIR/unifi/data"
+fi
+
 echo
 echo "========================================="
 echo -e "${GREEN}  Setup complete!${NC}"
@@ -242,6 +255,7 @@ echo "Service URLs:"
 [[ $PROFILES == *"uisp"* ]] && echo "  UISP:       https://uisp.$DOMAIN"
 [[ $PROFILES == *"jitsi"* ]] && echo "  Jitsi:      https://meet.$DOMAIN"
 [[ $PROFILES == *"jitsi"* ]] && echo "  Jitsi Admin: https://adm.meet.$DOMAIN"
+[[ $PROFILES == *"unifi"* ]] && echo "  UniFi:      https://unifi.$DOMAIN"
 echo
 echo "Next steps:"
 echo "  1. Review generated config files"
