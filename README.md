@@ -1,6 +1,6 @@
 # Homelab Stack
 
-Docker Compose-based homelab infrastructure with Caddy reverse proxy, Nextcloud, UISP, and Jitsi Meet.
+Docker Compose-based homelab infrastructure with Caddy reverse proxy, Nextcloud, UISP, Jitsi Meet, and UniFi Controller.
 
 ## Quick Start
 
@@ -36,7 +36,7 @@ If you prefer manual setup or need to modify existing configuration:
 |----------|-------------|---------|
 | `BASE_DOMAIN` | Base domain for all services | `stormyra.se` |
 | `DATA_DIR` | Root directory for persistent data | `/opt/stack` |
-| `COMPOSE_PROFILES` | Services to enable | `nextcloud,uisp,jitsi` |
+| `COMPOSE_PROFILES` | Services to enable | `nextcloud,uisp,jitsi,unifi` |
 
 ### Secrets
 
@@ -62,9 +62,9 @@ openssl rand -base64 32
 Edit `COMPOSE_PROFILES` in `.env`:
 
 ```bash
-COMPOSE_PROFILES=nextcloud,uisp,jitsi  # All services
-COMPOSE_PROFILES=nextcloud              # Only Nextcloud
-COMPOSE_PROFILES=nextcloud,jitsi        # No UISP
+COMPOSE_PROFILES=nextcloud,uisp,jitsi,unifi  # All services
+COMPOSE_PROFILES=nextcloud                    # Only Nextcloud
+COMPOSE_PROFILES=nextcloud,jitsi              # No UISP or UniFi
 ```
 
 Caddy always runs (no profile) as it's the reverse proxy.
@@ -87,12 +87,14 @@ All data stored under `${DATA_DIR}` (default `/opt/stack`):
 ├── uisp/
 │   ├── data/
 │   └── logs/
-└── jitsi/
-    ├── web/
-    ├── web-public/
-    ├── prosody/
-    ├── jicofo/
-    └── jvb/
+├── jitsi/
+│   ├── web/
+│   ├── web-public/
+│   ├── prosody/
+│   ├── jicofo/
+│   └── jvb/
+└── unifi/
+    └── data/       # UniFi config, db, backups
 ```
 
 ### Separate Storage for Nextcloud
@@ -165,6 +167,7 @@ docker compose exec -u www-data nextcloud php occ files:scan --all
 | UISP | `https://uisp.${BASE_DOMAIN}` |
 | Jitsi (public) | `https://meet.${BASE_DOMAIN}` |
 | Jitsi (admin) | `https://adm.meet.${BASE_DOMAIN}` |
+| UniFi | `https://unifi.${BASE_DOMAIN}` |
 
 ## Commands
 
