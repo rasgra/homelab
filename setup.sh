@@ -17,6 +17,9 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 DEFAULT_DOMAIN="example.com"
 DEFAULT_DATA_DIR="/opt/stack"
 
+# Management subnet default for UISP/Unifi GUI (empty means "no restriction")
+DEFAULT_MGMT_SUBNET=""
+
 echo "========================================="
 echo "  Homelab Stack Setup"
 echo "========================================="
@@ -55,6 +58,22 @@ PROFILES=""
 [[ ! $ENABLE_JITSI =~ ^[Nn]$ ]] && PROFILES="${PROFILES}jitsi,"
 [[ ! $ENABLE_UNIFI =~ ^[Nn]$ ]] && PROFILES="${PROFILES}unifi,"
 PROFILES=${PROFILES%,}  # Remove trailing comma
+
+# Prompt for MGMT subnet if UISP and/or UniFi are enabled
+MGMT_ALLOWED_SUBNET="$DEFAULT_MGMT_SUBNET"
+if [[ $PROFILES == *"uisp"* ]] || [[ $PROFILES == *"unifi"* ]]; then
+    echo
+    echo "Management GUI access restriction (recommended):"
+    echo "  Provide ONE allowed subnet in CIDR (example: 192.168.2.0/24 or 172.16.1.0/24)."
+    echo "  Leave blank to skip restriction (NOT recommended if exposed externally)."
+    read -p "  Allowed subnet for UISP/UniFi GUIs [$DEFAULT_MGMT_SUBNET]: " MGMT_ALLOWED_SUBNET
+    MGMT_ALLOWED_SUBNET=${MGMT_ALLOWED_SUBNET:-$DEFAULT_MGMT_SUBNET}
+
+    # Basic CIDR sanity check (lightweight)
+    if [[ -n "$MGMT_ALLOWED_SUBNET" ]] && [[ ! "$MGMT_ALLOWED_SUBNET" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$ ]]; then
+        error "Invalid CIDR format: '$MGMT_ALLOWED_SUBNET' (expected e.g. 192.168.2.0/24)"
+    fi
+fi
 
 # Secret generation
 generate_secret() {
@@ -102,7 +121,9 @@ fi
 
 # Create root .env
 info "Creating root .env..."
-cat > "$SCRIPT_DIR/.env" << EOF
+
+{
+    cat << EOF
 # Base domain for all services
 BASE_DOMAIN=$DOMAIN
 
@@ -113,6 +134,17 @@ DATA_DIR=$DATA_DIR
 # Caddy always runs as it's the reverse proxy
 COMPOSE_PROFILES=$PROFILES
 EOF
+
+    # Only add management subnet if UISP and/or UniFi are enabled
+    if [[ $PROFILES == *"uisp"* ]] || [[ $PROFILES == *"unifi"* ]]; then
+        cat << EOF
+
+# Restrict management GUIs (UISP + UniFi) to a single subnet (CIDR)
+# Example: 192.168.2.0/24
+MGMT_ALLOWED_SUBNET=$MGMT_ALLOWED_SUBNET
+EOF
+    fi
+} > "$SCRIPT_DIR/.env"
 
 # Create nextcloud .env files
 if [[ $PROFILES == *"nextcloud"* ]]; then
@@ -249,6 +281,7 @@ echo "Configuration summary:"
 echo "  Domain:     $DOMAIN"
 echo "  Data dir:   $DATA_DIR"
 echo "  Services:   $PROFILES"
+[[ -n "$MGMT_ALLOWED_SUBNET" ]] && echo "  Mgmt subnet: $MGMT_ALLOWED_SUBNET"
 echo
 echo "Service URLs:"
 [[ $PROFILES == *"nextcloud"* ]] && echo "  Nextcloud:  https://nextcloud.$DOMAIN"

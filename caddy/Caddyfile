@@ -46,7 +46,7 @@ uisp.{$BASE_DOMAIN} {
 
 	# Admin UI – endast via WireGuard
 	@admin path /nms* /nms/*
-	@wg remote_ip 172.16.1.0/24
+	@wg remote_ip {$MGMT_ALLOWED_SUBNET}
 
 	handle @admin {
 		handle @wg {
@@ -76,14 +76,20 @@ uisp.{$BASE_DOMAIN} {
 # =========================
 
 unifi.{$BASE_DOMAIN} {
+	tls internal
 	import security_headers
 
-	reverse_proxy unifi:8443 {
-		transport http {
-			tls_insecure_skip_verify
+	@wg remote_ip {$MGMT_ALLOWED_SUBNET}
+	handle @wg {
+		reverse_proxy unifi:8443 {
+			transport http {
+				tls_insecure_skip_verify
+			}
+			import proxy_headers
 		}
-		import proxy_headers
 	}
+
+	respond "UniFi GUI requires VPN" 403
 }
 
 # =========================
