@@ -12,6 +12,7 @@ docker compose up -d
 The setup script will:
 - Prompt for your domain and data directory
 - Let you choose which services to enable
+- Let you choose GUI subnet restriction for uisp & unifi
 - Generate secure passwords automatically
 - Create all required directories
 - Copy configuration files
@@ -37,6 +38,7 @@ If you prefer manual setup or need to modify existing configuration:
 | `BASE_DOMAIN` | Base domain for all services | `stormyra.se` |
 | `DATA_DIR` | Root directory for persistent data | `/opt/stack` |
 | `COMPOSE_PROFILES` | Services to enable | `nextcloud,uisp,jitsi,unifi` |
+| `MGMT_ALLOWED_SUBNET` | GUI subnet restriction | `xxx.xxx.xxx.xxx/xx` |
 
 ### Secrets
 
