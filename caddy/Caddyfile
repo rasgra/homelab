@@ -44,7 +44,7 @@ nextcloud.{$BASE_DOMAIN} {
 uisp.{$BASE_DOMAIN} {
 	import security_headers
 
-	# Admin UI – endast via WireGuard
+	# Admin UI – restricted to management subnet
 	@admin path /nms* /nms/*
 	@wg remote_ip {$MGMT_ALLOWED_SUBNET}
 
@@ -60,7 +60,7 @@ uisp.{$BASE_DOMAIN} {
 		respond "Admin access requires VPN" 403
 	}
 
-	# Publika delar av UISP
+	# Public-facing UISP endpoints
 	handle {
 		reverse_proxy uisp:443 {
 			transport http {
