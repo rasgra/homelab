@@ -298,3 +298,207 @@ echo "  4. Check logs: docker compose logs -f"
 echo
 [[ $PROFILES == *"nextcloud"* ]] && echo "Migrating existing Nextcloud? See README.md for steps."
 echo
+
+# ----------------------------
+# Firewall (UFW) setup
+# ----------------------------
+setup_firewall() {
+  local BASE_RULES=(
+    "22/tcp:SSH"
+    "80/tcp:HTTP"
+    "443/tcp:HTTPS"
+  )
+  local RULES_NEXTCLOUD=()
+  local RULES_UISP=(
+    "2055/udp:NetFlow/UDP 2055"
+  )
+  local RULES_JITSI=(
+    "10000/udp:Jitsi JVB Media"
+  )
+  local RULES_UNIFI=(
+    "3478/udp:UniFi STUN"
+    "10001/udp:UniFi Device Discovery"
+    "8080/tcp:UniFi Inform (Adoption)"
+  )
+
+  local DESIRED_RULES=()
+  DESIRED_RULES+=( "${BASE_RULES[@]}" )
+
+  IFS=',' read -r -a profiles_arr <<< "$PROFILES"
+  local p
+  for p in "${profiles_arr[@]}"; do
+    case "$p" in
+      nextcloud) DESIRED_RULES+=( "${RULES_NEXTCLOUD[@]}" ) ;;
+      uisp)      DESIRED_RULES+=( "${RULES_UISP[@]}" ) ;;
+      jitsi)     DESIRED_RULES+=( "${RULES_JITSI[@]}" ) ;;
+      unifi)     DESIRED_RULES+=( "${RULES_UNIFI[@]}" ) ;;
+      "")        ;;
+      *)         warn "Unknown profile '$p'; ignoring for firewall rules." ;;
+    esac
+  done
+
+  local seen="" out=() rule portproto
+  for rule in "${DESIRED_RULES[@]}"; do
+    portproto="${rule%%:*}"
+    if [[ ",$seen," != *",$portproto,"* ]]; then
+      out+=( "$rule" )
+      seen="${seen},${portproto}"
+    fi
+  done
+  DESIRED_RULES=( "${out[@]}" )
+
+  info "Desired firewall allow rules:"
+  for r in "${DESIRED_RULES[@]}"; do
+    echo "  - ${r%%:*}  (${r##*:})"
+  done
+  echo
+
+  if ! command -v ufw >/dev/null 2>&1; then
+    warn "ufw is not installed."
+    read -p "Install ufw now via apt-get? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      sudo apt-get update
+      sudo apt-get install -y ufw
+      info "ufw installed."
+    else
+      warn "ufw is required for firewall setup. Skipping."
+      return 0
+    fi
+  else
+    info "ufw is installed: $(sudo ufw --version | head -n1 || true)"
+  fi
+
+  local status_verbose
+  status_verbose="$(sudo ufw status verbose 2>/dev/null || true)"
+
+  local existing desired
+  existing="$(awk '
+    BEGIN{IGNORECASE=1}
+    NR>2 && $1 !~ /^(Status:|To)$/ {
+      to=$1; action=$2
+      if (action != "ALLOW") next
+      split(to, a, "/")
+      port=a[1]; proto=a[2]
+      if (port ~ /^[0-9]+$/ && proto ~ /^(tcp|udp)$/)
+        print proto ":" port
+    }
+  ' <<<"$status_verbose" | sort -u)"
+
+  desired="$(for rule in "${DESIRED_RULES[@]}"; do
+    portproto="${rule%%:*}"
+    port="${portproto%%/*}"
+    proto="${portproto##*/}"
+    echo "${proto}:${port}"
+  done | sort -u)"
+
+  local incoming outgoing
+  read -r incoming outgoing < <(awk -F': ' '/Default: /{print $2}' <<<"$status_verbose" \
+    | awk -F', ' '{print $1, $2}' | xargs || true)
+
+  local defaults_ok=0
+  if [[ "${incoming,,}" == "deny (incoming)" || "${incoming,,}" == "deny" ]] && \
+     [[ "${outgoing,,}" == "allow (outgoing)" || "${outgoing,,}" == "allow" ]]; then
+    defaults_ok=1
+  fi
+
+  if [[ "$existing" == "$desired" ]] && [[ "$defaults_ok" -eq 1 ]]; then
+    info "UFW already matches the desired rule set and default policies. No changes needed."
+    return 0
+  fi
+
+  local ipv6_setting="unknown"
+  if [[ -f /etc/default/ufw ]]; then
+    ipv6_setting="$(grep -E '^[[:space:]]*IPV6=' /etc/default/ufw | tail -n1 | cut -d= -f2- | tr -d '[:space:]' || true)"
+    ipv6_setting="${ipv6_setting,,}"
+    [[ "$ipv6_setting" != "yes" && "$ipv6_setting" != "no" ]] && ipv6_setting="unknown"
+  fi
+  info "Current UFW IPv6 setting: IPV6=${ipv6_setting}"
+  if [[ "$ipv6_setting" != "yes" ]]; then
+    warn "IPv6 is not enabled for UFW. IPv6 allow rules may not be applied."
+    read -p "Set IPV6=yes in /etc/default/ufw (backup will be created)? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      local ufw_conf="/etc/default/ufw"
+      sudo cp -a "$ufw_conf" "${ufw_conf}.bak.$(date +%Y%m%d%H%M%S)"
+      if grep -qE '^[[:space:]]*IPV6=' "$ufw_conf"; then
+        sudo sed -i 's/^[[:space:]]*IPV6=.*/IPV6=yes/' "$ufw_conf"
+      else
+        echo "IPV6=yes" | sudo tee -a "$ufw_conf" >/dev/null
+      fi
+      info "Set IPV6=yes."
+    else
+      warn "Keeping IPV6 unchanged."
+    fi
+  fi
+
+  info "Current UFW status:"
+  sudo ufw status verbose || true
+  echo
+
+  read -p "Reset UFW (removes existing rules) before applying? [y/N] " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    sudo ufw --force reset
+    info "UFW reset complete."
+  else
+    warn "Skipping reset. Will add rules on top of existing configuration."
+  fi
+
+  if [[ "$defaults_ok" -eq 0 ]]; then
+    warn "Default policies are not as expected."
+    read -p "Set default incoming=deny, outgoing=allow? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      sudo ufw default deny incoming
+      sudo ufw default allow outgoing
+    else
+      warn "Leaving default policies unchanged."
+    fi
+  else
+    info "Default policies already match (deny incoming, allow outgoing)."
+  fi
+
+  read -p "Apply the desired allow rules now? [y/N] " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    for rule in "${DESIRED_RULES[@]}"; do
+      local port_proto="${rule%%:*}"
+      local comment="${rule##*:}"
+      sudo ufw allow "$port_proto" comment "$comment"
+    done
+    info "Allow rules applied."
+  else
+    warn "Skipping allow rules."
+  fi
+
+  read -p "Enable UFW now? [y/N] " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    sudo ufw --force enable
+    info "UFW enabled."
+  else
+    warn "UFW was not enabled."
+  fi
+
+  echo
+  info "Final UFW status:"
+  sudo ufw status verbose || true
+}
+
+# Ask if user wants to set up firewall
+echo
+read -p "Configure UFW firewall now? [y/N] " -n 1 -r SETUP_FIREWALL
+echo
+if [[ $SETUP_FIREWALL =~ ^[Yy]$ ]]; then
+  echo
+  echo "========================================="
+  echo "  UFW Firewall Setup"
+  echo "========================================="
+  echo
+  setup_firewall
+  echo
+  echo "========================================="
+  echo -e "${GREEN}  Firewall setup complete!${NC}"
+  echo "========================================="
+fi
