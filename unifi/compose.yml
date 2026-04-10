@@ -19,5 +19,6 @@ services:
       - "3478:3478/udp"   # STUN
       - "10001:10001/udp" # Device discovery
       - "8080:8080"       # Device inform
+      - "8443:8443"       # Web UI (temporary)
     volumes:
       - ${DATA_DIR}/unifi/data:/unifi
