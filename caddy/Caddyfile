@@ -2,7 +2,7 @@
 	email mail@{$BASE_DOMAIN}
 	log {
 		output stdout
-		level DEBUG
+		level INFO
 	}
 }
 
