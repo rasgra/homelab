@@ -99,7 +99,7 @@ prompt_secret() {
         value=$(generate_secret)
         echo "    (generated)"
     fi
-    eval "$var_name='$value'"
+    printf -v "$var_name" '%s' "$value"
 }
 
 echo
