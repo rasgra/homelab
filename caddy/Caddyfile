@@ -97,41 +97,17 @@ unifi.{$BASE_DOMAIN} {
 # =========================
 
 adm.meet.{$BASE_DOMAIN} {
-	
-	handle /http-bind* {
-		reverse_proxy web:80 {
-			header_up Host {host}
-			header_up X-Forwarded-Proto https
-			header_up X-Forwarded-Port 443
-		}
-	}
-
-	# Everything else (root UI, config.js, etc.)
-	handle {
-		reverse_proxy web:80 {
-			header_up Host {host}
-			header_up X-Forwarded-Proto https
-			header_up X-Forwarded-Port 443
-		}
+	reverse_proxy web:80 {
+		header_up Host {host}
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Port 443
 	}
 }
 
 meet.{$BASE_DOMAIN} {
-	
-	handle /http-bind* {
-		reverse_proxy web-public:80 {
-			header_up Host {host}
-			header_up X-Forwarded-Proto https
-			header_up X-Forwarded-Port 443
-		}
-	}
-
-	# Everything else (root UI, config.js, etc.)
-	handle {
-		reverse_proxy web-public:80 {
-			header_up Host {host}
-			header_up X-Forwarded-Proto https
-			header_up X-Forwarded-Port 443
-		}
+	reverse_proxy web-public:80 {
+		header_up Host {host}
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Port 443
 	}
 }
