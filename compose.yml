@@ -24,6 +24,7 @@ networks:
 
 include:
   - ./caddy/compose.yml
+  - ./caddy/cloudflared/compose.yml
   - ./nextcloud/compose.yml
   - ./uisp/compose.yml
   - ./jitsi-deploy/compose.yml
