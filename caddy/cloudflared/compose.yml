@@ -1,0 +1,13 @@
+services:
+  cloudflared:
+    profiles: ["cloudflared"]
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel --config /etc/cloudflared/config.yml run
+    volumes:
+      - ${DATA_DIR}/cloudflared:/etc/cloudflared:ro
+    networks:
+      - frontend
+    depends_on:
+      - caddy
