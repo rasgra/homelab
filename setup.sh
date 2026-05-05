@@ -207,6 +207,15 @@ if [[ $PROFILES == *"unifi"* ]]; then
     sudo mkdir -p "$DATA_DIR/unifi/data"
 fi
 
+if [[ $PROFILES == *"cloudflared"* ]]; then
+    sudo mkdir -p "$DATA_DIR/cloudflared"
+    # 65532 is the nonroot UID used inside the cloudflared container.
+    # The daemon needs to read cert.pem, config.yml and the credentials JSON
+    # at runtime, so the host dir must be owned by that UID.
+    sudo chown -R 65532:65532 "$DATA_DIR/cloudflared"
+    sudo chmod 700 "$DATA_DIR/cloudflared"
+fi
+
 # Copy Caddyfile
 info "Copying Caddyfile to $DATA_DIR/caddy/..."
 sudo cp "$SCRIPT_DIR/caddy/Caddyfile" "$DATA_DIR/caddy/Caddyfile"
@@ -225,6 +234,11 @@ sudo chown -R root:root "$DATA_DIR/caddy"
 sudo chmod 755 "$DATA_DIR/caddy"
 sudo chmod 644 "$DATA_DIR/caddy/Caddyfile"
 sudo chmod 755 "$DATA_DIR/caddy/data" "$DATA_DIR/caddy/config"
+# files/ is the public_html drop — owned by the invoking user so scp/mkdir
+# work without sudo. Caddy mounts it read-only so ownership only needs to
+# let the user write.
+sudo chown -R "${SUDO_USER:-$USER}":"${SUDO_USER:-$USER}" "$DATA_DIR/caddy/files"
+sudo chmod 755 "$DATA_DIR/caddy/files"
 
 if [[ $PROFILES == *"nextcloud"* ]]; then
     # Secret files: restrict access
