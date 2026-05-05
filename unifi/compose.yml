@@ -1,7 +1,8 @@
 services:
   unifi:
     profiles: ["unifi"]
-    image: jacobalberty/unifi:v8.6
+    image: jacobalberty/unifi:v10.0
+    #image: jacobalberty/unifi:v8.6
     container_name: unifi
     restart: unless-stopped
     networks: [frontend]
