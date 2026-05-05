@@ -91,7 +91,7 @@ unifi.{$BASE_DOMAIN} {
 		}
 	}
 
-	respond "UniFi GUI requires VPN" 403
+	respond "UniFi GUI requires VPN or LAN access" 403
 }
 
 # =========================
