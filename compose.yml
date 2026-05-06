@@ -44,5 +44,6 @@ include:
   - ./unifi/compose.yml
   - ./finance/compose.yml
   - ./training/compose.yml
+  - ./homeassistant/compose.yml
 
 

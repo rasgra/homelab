@@ -1,0 +1,17 @@
+services:
+  homeassistant:
+    profiles: ["homeassistant"]
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    restart: unless-stopped
+    # Host networking so HA can do mDNS / SSDP discovery for Chromecasts,
+    # home hubs, etc. HA listens on host:8123. Caddy reaches it via
+    # host.docker.internal which is wired up in caddy/compose.yml.
+    network_mode: host
+    env_file:
+      - ../.env
+    environment:
+      - TZ=Europe/Stockholm
+    volumes:
+      - ${DATA_DIR}/homeassistant/config:/config
+      - /etc/localtime:/etc/localtime:ro

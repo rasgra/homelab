@@ -254,6 +254,13 @@ if [[ $PROFILES == *"training"* ]]; then
     sudo chmod 750 "$DATA_DIR/training/db" "$DATA_DIR/training/uploads"
 fi
 
+if [[ $PROFILES == *"homeassistant"* ]]; then
+    sudo mkdir -p "$DATA_DIR/homeassistant/config"
+    # HA runs as root inside the container; keep host ownership matching.
+    sudo chown -R root:root "$DATA_DIR/homeassistant"
+    sudo chmod 755 "$DATA_DIR/homeassistant"
+fi
+
 # Copy Caddyfile
 info "Copying Caddyfile to $DATA_DIR/caddy/..."
 sudo cp "$SCRIPT_DIR/caddy/Caddyfile" "$DATA_DIR/caddy/Caddyfile"
