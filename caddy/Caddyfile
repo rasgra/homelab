@@ -93,6 +93,29 @@ unifi.{$BASE_DOMAIN} {
 }
 
 # =========================
+# File server
+# =========================
+
+# Public via Cloudflare Tunnel. tls internal because the ISP blocks
+# inbound TCP, so ACME cannot reach us — Cloudflare serves the public
+# cert at the edge and connects to us with noTLSVerify.
+files.{$PUBLIC_DOMAIN} {
+	tls internal
+	import security_headers
+
+	root * /srv/files
+
+	@mgmt remote_ip {$MGMT_ALLOWED_SUBNET}
+	handle @mgmt {
+		file_server browse
+	}
+
+	handle {
+		file_server
+	}
+}
+
+# =========================
 # Jitsi Meet
 # =========================
 

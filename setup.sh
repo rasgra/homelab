@@ -176,6 +176,7 @@ fi
 info "Creating data directories in $DATA_DIR..."
 sudo mkdir -p "$DATA_DIR/caddy/data"
 sudo mkdir -p "$DATA_DIR/caddy/config"
+sudo mkdir -p "$DATA_DIR/caddy/files"
 
 if [[ $PROFILES == *"nextcloud"* ]]; then
     if [[ -d "$DATA_DIR/nextcloud/html" ]]; then
@@ -289,6 +290,7 @@ echo "Service URLs:"
 [[ $PROFILES == *"jitsi"* ]] && echo "  Jitsi:      https://meet.$DOMAIN"
 [[ $PROFILES == *"jitsi"* ]] && echo "  Jitsi Admin: https://adm.meet.$DOMAIN"
 [[ $PROFILES == *"unifi"* ]] && echo "  UniFi:      https://unifi.$DOMAIN"
+echo "  Files:      https://files.$PUBLIC_DOMAIN"
 echo
 echo "Next steps:"
 echo "  1. Review generated config files"
