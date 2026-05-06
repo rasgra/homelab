@@ -7,6 +7,10 @@ services:
       - ../.env
     networks:
       - frontend
+    # host.docker.internal lets Caddy reach services that run with
+    # network_mode: host (e.g. homeassistant on :8123).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "80:80"
       - "443:443"
