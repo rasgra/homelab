@@ -20,3 +20,4 @@ services:
       - ${DATA_DIR}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${DATA_DIR}/caddy/data:/data
       - ${DATA_DIR}/caddy/config:/config
+      - ${DATA_DIR}/caddy/files:/srv/files:ro
