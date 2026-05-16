@@ -1,0 +1,7 @@
+my-project.{$BASE_DOMAIN} {
+	import security_headers
+
+	reverse_proxy my-service:8080 {
+		import proxy_headers
+	}
+}

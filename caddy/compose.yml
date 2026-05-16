@@ -18,5 +18,6 @@ services:
       retries: 3
     volumes:
       - ${DATA_DIR}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${DATA_DIR}/caddy/conf.d:/etc/caddy/conf.d:ro
       - ${DATA_DIR}/caddy/data:/data
       - ${DATA_DIR}/caddy/config:/config

@@ -1,0 +1,83 @@
+#!/bin/bash
+# Deploy Caddy config from repo to the live data directory.
+# Usage: ./scripts/update-caddyfile [--reload] [DATA_DIR]
+#
+#   --reload   Also reload the running Caddy container
+#   DATA_DIR   Defaults to value in .env, then /opt/stack
+#
+# Note: files are written in-place (same inode) so that Docker's file-level
+# bind mounts pick up the changes without requiring a container restart.
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+RELOAD=false
+DATA_DIR_ARG=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --reload) RELOAD=true ;;
+        *)        DATA_DIR_ARG="$arg" ;;
+    esac
+done
+
+# Resolve DATA_DIR: argument > .env > default
+if [[ -n "$DATA_DIR_ARG" ]]; then
+    DATA_DIR="$DATA_DIR_ARG"
+elif [[ -f "$SCRIPT_DIR/.env" ]]; then
+    DATA_DIR=$(grep "^DATA_DIR=" "$SCRIPT_DIR/.env" | cut -d= -f2)
+fi
+DATA_DIR="${DATA_DIR:-/opt/stack}"
+
+# Write a file in-place (preserving inode) so Docker bind mounts see the update.
+# 'install' creates a new inode via rename; 'tee' overwrites the existing one.
+write_inplace() {
+    local src="$1" dst="$2" mode="${3:-0644}"
+    sudo tee "$dst" < "$src" > /dev/null
+    sudo chmod "$mode" "$dst"
+    sudo chown root:root "$dst"
+}
+
+echo "Syncing Caddy config to $DATA_DIR/caddy/ ..."
+
+write_inplace "$SCRIPT_DIR/caddy/Caddyfile" "$DATA_DIR/caddy/Caddyfile"
+echo "  Updated: Caddyfile"
+
+# Sync caddy snippets for registered custom projects
+PROJECTS_FILE="$SCRIPT_DIR/.custom_projects"
+if [[ -f "$PROJECTS_FILE" ]] && [[ -s "$PROJECTS_FILE" ]]; then
+    sudo mkdir -p "$DATA_DIR/caddy/conf.d"
+    while IFS= read -r proj || [[ -n "$proj" ]]; do
+        [[ -z "$proj" ]] && continue
+        rel="${proj#./}"
+        manifest="$SCRIPT_DIR/$rel/homelab.yml"
+        [[ ! -f "$manifest" ]] && continue
+
+        name=$(grep "^name:" "$manifest" | sed "s/^name: *//" | tr -d '\r')
+        snippet=$(grep "^caddy_snippet:" "$manifest" | sed "s/^caddy_snippet: *//" | tr -d '\r')
+        [[ -z "$snippet" ]] && continue
+
+        src="$SCRIPT_DIR/$rel/$snippet"
+        dst="$DATA_DIR/caddy/conf.d/${name}.caddy"
+        if [[ -f "$src" ]]; then
+            if [[ -f "$dst" ]]; then
+                write_inplace "$src" "$dst"
+            else
+                # New snippet — no existing inode to preserve
+                sudo install -m 0644 -o root -g root "$src" "$dst"
+            fi
+            echo "  Updated: conf.d/${name}.caddy"
+        else
+            echo "  WARNING: snippet not found: $src"
+        fi
+    done < "$PROJECTS_FILE"
+fi
+
+if $RELOAD; then
+    echo "Reloading Caddy..."
+    docker compose -f "$SCRIPT_DIR/compose.yml" exec caddy \
+        caddy reload --config /etc/caddy/Caddyfile
+else
+    echo "Done. To reload: docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile"
+fi

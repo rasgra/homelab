@@ -1,0 +1,15 @@
+services:
+  my-service:
+    image: my-image:latest
+    restart: unless-stopped
+    networks:
+      - my-project-backend
+      - frontend          # needed only if the service must reach Caddy directly
+
+networks:
+  my-project-backend:
+    external: true
+    name: my-project-backend
+  frontend:
+    external: true
+    name: frontend
