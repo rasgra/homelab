@@ -259,6 +259,21 @@ if [[ $PROFILES == *"homeassistant"* ]]; then
     # HA runs as root inside the container; keep host ownership matching.
     sudo chown -R root:root "$DATA_DIR/homeassistant"
     sudo chmod 755 "$DATA_DIR/homeassistant"
+
+    # Pre-populate configuration.yaml so HA trusts the Caddy reverse proxy
+    # from first boot. Only created when absent — existing configs are
+    # left alone so manual customisation is preserved.
+    if [[ ! -f "$DATA_DIR/homeassistant/config/configuration.yaml" ]]; then
+        sudo tee "$DATA_DIR/homeassistant/config/configuration.yaml" > /dev/null <<'EOF'
+# Loads default set of integrations. Do not remove.
+default_config:
+
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - 172.22.0.0/16
+EOF
+    fi
 fi
 
 # Copy Caddyfile
