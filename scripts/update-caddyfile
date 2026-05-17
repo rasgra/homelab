@@ -26,7 +26,7 @@ done
 if [[ -n "$DATA_DIR_ARG" ]]; then
     DATA_DIR="$DATA_DIR_ARG"
 elif [[ -f "$SCRIPT_DIR/.env" ]]; then
-    DATA_DIR=$(grep "^DATA_DIR=" "$SCRIPT_DIR/.env" | cut -d= -f2)
+    DATA_DIR=$(grep "^DATA_DIR=" "$SCRIPT_DIR/.env" | cut -d= -f2- | sed 's/[[:space:]]*#.*//' | tr -d '"' | tr -d "'")
 fi
 DATA_DIR="${DATA_DIR:-/opt/stack}"
 

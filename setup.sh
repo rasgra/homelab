@@ -27,10 +27,13 @@ DEFAULT_MGMT_SUBNET=""
 PROJECTS_FILE="$SCRIPT_DIR/.custom_projects"
 OVERRIDE_FILE="$SCRIPT_DIR/compose.override.yml"
 
-# Read a scalar value from a simple key: value YAML file
+# Read a scalar value from a simple key: value YAML file.
+# Uses awk index() for literal key matching — safe against regex metacharacters.
 yaml_get() {
     local file="$1" key="$2"
-    grep "^${key}:" "$file" 2>/dev/null | sed "s/^${key}: *//" | tr -d '\r'
+    awk -v k="$key" '
+        index($0, k ":") == 1 { sub(/^[^:]+:[[:space:]]*/, ""); print; exit }
+    ' "$file" 2>/dev/null | tr -d '\r'
 }
 
 # Regenerate compose.override.yml from .custom_projects
@@ -64,7 +67,7 @@ generate_override() {
             net_defs+="    internal: true"$'\n'
             net_defs+="    name: ${net}"$'\n'
         fi
-        [[ -n "$cfile" ]] && includes+="  - path: ${proj}/${cfile}"$'\n'
+        [[ -n "$cfile" ]] && includes+="  - path: \"${proj}/${cfile}\""$'\n'
     done < "$PROJECTS_FILE"
 
     {
@@ -127,7 +130,8 @@ cmd_add_project() {
 
     # Normalise to a ./relative path from SCRIPT_DIR
     local rel
-    rel=$(realpath --relative-to="$SCRIPT_DIR" "$proj_path" 2>/dev/null) || rel="$proj_path"
+    rel=$(realpath --relative-to="$SCRIPT_DIR" "$proj_path" 2>/dev/null) \
+        || rel="${proj_path#"$SCRIPT_DIR/"}"
     [[ "$rel" != ./* ]] && rel="./$rel"
 
     local manifest_rel="${rel#./}"
@@ -173,7 +177,8 @@ cmd_remove_project() {
     [[ -z "$proj_path" ]] && error "--remove-project requires a path argument"
 
     local rel
-    rel=$(realpath --relative-to="$SCRIPT_DIR" "$proj_path" 2>/dev/null) || rel="$proj_path"
+    rel=$(realpath --relative-to="$SCRIPT_DIR" "$proj_path" 2>/dev/null) \
+        || rel="${proj_path#"$SCRIPT_DIR/"}"
     [[ "$rel" != ./* ]] && rel="./$rel"
 
     if [[ ! -f "$PROJECTS_FILE" ]] || ! grep -qxF "$rel" "$PROJECTS_FILE"; then
@@ -182,7 +187,7 @@ cmd_remove_project() {
     fi
 
     local tmp; tmp=$(mktemp)
-    grep -vxF "$rel" "$PROJECTS_FILE" > "$tmp" && mv "$tmp" "$PROJECTS_FILE"
+    grep -vxF "$rel" "$PROJECTS_FILE" > "$tmp"; mv "$tmp" "$PROJECTS_FILE"
     info "Unregistered project: $rel"
 
     # Remove caddy snippet from DATA_DIR if possible
@@ -283,14 +288,18 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -a|--add-project)
             MODE="add-project"
-            PROJECT_ARG="${2:-}"
-            [[ -n "$PROJECT_ARG" ]] && shift
+            if [[ -n "${2:-}" && "${2:-}" != -* ]]; then
+                PROJECT_ARG="$2"
+                shift
+            fi
             shift
             ;;
         -r|--remove-project)
             MODE="remove-project"
-            PROJECT_ARG="${2:-}"
-            [[ -n "$PROJECT_ARG" ]] && shift
+            if [[ -n "${2:-}" && "${2:-}" != -* ]]; then
+                PROJECT_ARG="$2"
+                shift
+            fi
             shift
             ;;
         -l|--list-projects)
