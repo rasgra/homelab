@@ -503,7 +503,6 @@ if [[ $PROFILES == *"jitsi"* ]]; then
     sudo mkdir -p "$DATA_DIR/jitsi/prosody"
     sudo mkdir -p "$DATA_DIR/jitsi/jicofo"
     sudo mkdir -p "$DATA_DIR/jitsi/jvb"
-    sudo mkdir -p "$DATA_DIR/jitsi/branding"
 fi
 
 if [[ $PROFILES == *"unifi"* ]]; then
@@ -517,11 +516,7 @@ sudo cp "$SCRIPT_DIR/caddy/Caddyfile" "$DATA_DIR/caddy/Caddyfile"
 # Deploy caddy snippets for any registered custom projects
 deploy_caddy_snippets "$DATA_DIR"
 
-# Copy Jitsi branding
-if [[ $PROFILES == *"jitsi"* ]]; then
-    info "Copying Jitsi branding to $DATA_DIR/jitsi/branding/..."
-    sudo cp "$SCRIPT_DIR/jitsi-deploy/branding/watermark.svg" "$DATA_DIR/jitsi/branding/watermark.svg"
-fi
+# Jitsi branding files are mounted directly from jitsi-deploy/branding/ — no copying needed
 
 # Set permissions
 info "Setting permissions..."
@@ -567,7 +562,6 @@ if [[ $PROFILES == *"jitsi"* ]]; then
     sudo chmod 755 "$DATA_DIR/jitsi/web" "$DATA_DIR/jitsi/web-public"
     sudo chmod 755 "$DATA_DIR/jitsi/prosody" "$DATA_DIR/jitsi/jicofo" "$DATA_DIR/jitsi/jvb"
     sudo chmod 755 "$DATA_DIR/jitsi/branding"
-    sudo chmod 644 "$DATA_DIR/jitsi/branding/watermark.svg"
 
     # Secret files: restrict access
     chmod 600 "$SCRIPT_DIR/jitsi-deploy/.env.secrets"
@@ -599,7 +593,7 @@ echo "Service URLs:"
 echo
 echo "Next steps:"
 echo "  1. Review generated config files"
-[[ $PROFILES == *"jitsi"* ]] && echo "  2. Customize Jitsi logo: $DATA_DIR/jitsi/branding/watermark.svg"
+[[ $PROFILES == *"jitsi"* ]] && echo "  2. Customize Jitsi branding: jitsi-deploy/branding/"
 echo "  3. Start the stack: docker compose up -d"
 echo "  4. Check logs: docker compose logs -f"
 echo

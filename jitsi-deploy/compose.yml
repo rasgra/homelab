@@ -1,30 +1,4 @@
 services:
-  web-public:
-    profiles: ["jitsi"]
-    image: jitsi/web:stable-10655
-    restart: unless-stopped
-    networks:
-      - frontend
-      - jitsi-backend
-    env_file:
-      - ../.env
-      - ./.env
-      - ./.env.secrets
-    environment:
-      - PUBLIC_URL=https://meet.${BASE_DOMAIN}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    volumes:
-      - ${DATA_DIR}/jitsi/web-public:/config
-      - ${DATA_DIR}/jitsi/branding/watermark.svg:/usr/share/jitsi-meet/images/watermark.svg:ro
-    depends_on:
-      - prosody
-      - jicofo
-      - jvb
-
   web:
     profiles: ["jitsi"]
     image: jitsi/web:stable-10655
@@ -37,7 +11,8 @@ services:
       - ./.env
       - ./.env.secrets
     environment:
-      - PUBLIC_URL=https://adm.meet.${BASE_DOMAIN}
+      - PUBLIC_URL=https://meet.${BASE_DOMAIN}
+      - DYNAMIC_BRANDING_URL=https://meet.${BASE_DOMAIN}/static/branding.json
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80"]
       interval: 30s
@@ -45,7 +20,13 @@ services:
       retries: 3
     volumes:
       - ${DATA_DIR}/jitsi/web:/config
-      - ${DATA_DIR}/jitsi/branding/watermark.svg:/usr/share/jitsi-meet/images/watermark.svg:ro
+      - ./nginx-custom:/config/nginx-custom:ro
+      - ./branding/stormyra-consulting-ab-white.svg:/usr/share/jitsi-meet/images/watermark.svg:ro
+      - ./branding/stormyra-consulting-ab-white.svg:/usr/share/jitsi-meet/images/logo.svg:ro
+      - ./branding/bg.png:/usr/share/jitsi-meet/images/welcome-background.png:ro
+      - ./branding/branding.json:/usr/share/jitsi-meet/static/branding.json:ro
+      - ./branding/custom.css:/usr/share/jitsi-meet/custom.css:ro
+      - ./branding/custom.js:/usr/share/jitsi-meet/custom.js:ro
     depends_on:
       - prosody
       - jicofo

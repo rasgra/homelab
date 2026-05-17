@@ -1,0 +1,54 @@
+/* Force header to match full-page background */
+.header, .header-image {
+    background: #002e53 !important;
+}
+
+/* Logo (in-call watermark) */
+.watermark {
+    transform: scale(3.75) !important;
+    transform-origin: top left !important;
+}
+
+/* Hide original h1 title but preserve its space to keep subtitle positioned */
+.header-text-title {
+    visibility: hidden !important;
+}
+
+/* Replace subtitle text, centered, light weight, pushed just above input */
+.header-text-subtitle {
+    visibility: hidden;
+    display: block !important;
+    width: 100% !important;
+    text-align: center !important;
+    font-weight: 300 !important;
+    margin-bottom: 8px !important;
+}
+
+.header-text-subtitle::before {
+    content: 'Meeting admin required to start meeting';
+    visibility: visible;
+    display: block;
+    text-align: center;
+    width: 100%;
+}
+
+/* Full-page background matched to bg.png */
+html,
+body.welcome-page,
+.welcome,
+.welcome.without-content,
+.welcome-footer,
+.welcome-cards-container,
+#welcome_page,
+#react {
+    background-color: #002e53 !important;
+}
+
+/* Recent meetings card — light gray */
+.welcome-card--blue {
+    background-color: #e0e6ed !important;
+}
+
+.meetings-list-empty .description {
+    color: #4a5568 !important;
+}

@@ -96,16 +96,8 @@ unifi.{$BASE_DOMAIN} {
 # Jitsi Meet
 # =========================
 
-adm.meet.{$BASE_DOMAIN} {
-	reverse_proxy web:80 {
-		header_up Host {host}
-		header_up X-Forwarded-Proto https
-		header_up X-Forwarded-Port 443
-	}
-}
-
 meet.{$BASE_DOMAIN} {
-	reverse_proxy web-public:80 {
+	reverse_proxy web:80 {
 		header_up Host {host}
 		header_up X-Forwarded-Proto https
 		header_up X-Forwarded-Port 443

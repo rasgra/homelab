@@ -245,8 +245,7 @@ docker compose exec -u www-data nextcloud php occ files:scan --all
 |---------|-----|
 | Nextcloud | `https://nextcloud.${BASE_DOMAIN}` |
 | UISP | `https://uisp.${BASE_DOMAIN}` |
-| Jitsi (public) | `https://meet.${BASE_DOMAIN}` |
-| Jitsi (admin) | `https://adm.meet.${BASE_DOMAIN}` |
+| Jitsi | `https://meet.${BASE_DOMAIN}` |
 | UniFi | `https://unifi.${BASE_DOMAIN}` |
 
 ## Commands
