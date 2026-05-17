@@ -265,10 +265,60 @@ docker compose restart [service]
 
 # Rebuild Nextcloud image
 docker compose build nextcloud
-
-# Update all images
-docker compose pull && docker compose up -d
 ```
+
+## Maintenance
+
+### Check TLS certificates
+
+```bash
+./scripts/check-certs
+```
+
+Reads domains from the Caddyfile, connects live, and shows expiry status for each. Skips `tls internal` blocks (e.g. UniFi).
+
+| Option | Description |
+|--------|-------------|
+| `--warn-days N` | Warn threshold in days (default: 30) |
+| `--crit-days N` | Critical threshold in days (default: 7) |
+| `--quiet` | Print only warnings/errors; exit non-zero if any found — suitable for cron |
+| `--json` | NDJSON output, one object per domain — pipe to `jq` |
+| `--nagios` | Nagios/check_mk-compatible exit codes (0 OK, 1 WARN, 2 CRIT, 3 UNKNOWN) |
+| `domain ...` | Check additional domains not in the Caddyfile |
+
+Examples:
+```bash
+./scripts/check-certs --warn-days 60          # warn earlier
+./scripts/check-certs --quiet                  # for cron — silent on success
+./scripts/check-certs --json | jq .           # structured output
+./scripts/check-certs extra.example.com       # check an ad-hoc domain
+```
+
+### Check for image updates
+
+```bash
+./scripts/update-images
+```
+
+Scans all compose files for pinned image versions, queries Docker Hub for newer releases, shows a release notes link per image, and prompts before applying each update. Changes are logged to `update-history.log`.
+
+```bash
+./scripts/update-images --check-only   # report only, no changes
+```
+
+To revert an applied update:
+```bash
+git checkout -- <compose-file>
+docker compose up -d
+```
+
+### Update Caddy config
+
+```bash
+./scripts/update-caddyfile [--reload]
+```
+
+Pushes the repo's Caddyfile and any registered project snippets to `$DATA_DIR/caddy/`. Pass `--reload` to also signal the running Caddy container to reload without restart.
 
 ## Network Architecture
 
