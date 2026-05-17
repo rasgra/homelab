@@ -41,7 +41,7 @@ services:
 
   mariadb:
     profiles: ["nextcloud"]
-    image: mariadb:10.11.16
+    image: mariadb:12.2.2
     container_name: mariadb
     restart: unless-stopped
     networks: [nextcloud-backend]
@@ -62,7 +62,7 @@ services:
 
   redis:
     profiles: ["nextcloud"]
-    image: redis:7.4.9-alpine
+    image: redis:8.6.3-alpine
     container_name: redis
     restart: unless-stopped
     networks: [nextcloud-backend]
