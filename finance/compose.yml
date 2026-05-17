@@ -1,0 +1,18 @@
+services:
+  finance:
+    profiles: ["finance"]
+    build:
+      context: ../../finance
+    container_name: finance
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    networks:
+      - frontend
+    environment:
+      - TZ=Europe/Stockholm
+      - FINANCE_DATABASE_URL=sqlite:////data/finance.db
+      - FINANCE_COOKIE_SECURE=true
+      - FINANCE_APP_BASE_URL=https://finance.${BASE_DOMAIN}
+    volumes:
+      - ${DATA_DIR}/finance/data:/data

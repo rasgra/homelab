@@ -118,6 +118,25 @@ files.{$PUBLIC_DOMAIN} {
 }
 
 # =========================
+# Finance
+# =========================
+
+# Internal only, reached at finance.<BASE_DOMAIN> via split-horizon DNS.
+finance.{$BASE_DOMAIN} {
+	tls internal
+	import security_headers
+
+	@mgmt remote_ip {$MGMT_ALLOWED_SUBNET}
+	handle @mgmt {
+		reverse_proxy finance:8000 {
+			import proxy_headers
+		}
+	}
+
+	respond "Finance requires VPN or LAN access" 403
+}
+
+# =========================
 # Jitsi Meet
 # =========================
 

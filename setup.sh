@@ -222,6 +222,13 @@ if [[ $PROFILES == *"cloudflared"* ]]; then
     sudo chmod 700 "$DATA_DIR/cloudflared"
 fi
 
+if [[ $PROFILES == *"finance"* ]]; then
+    sudo mkdir -p "$DATA_DIR/finance/data"
+    # Finance runs as root inside the container; keep host ownership matching.
+    sudo chown -R root:root "$DATA_DIR/finance"
+    sudo chmod 755 "$DATA_DIR/finance"
+fi
+
 # Copy Caddyfile
 info "Copying Caddyfile to $DATA_DIR/caddy/..."
 sudo cp "$SCRIPT_DIR/caddy/Caddyfile" "$DATA_DIR/caddy/Caddyfile"
