@@ -137,6 +137,26 @@ finance.{$BASE_DOMAIN} {
 }
 
 # =========================
+# Training
+# =========================
+
+# Internal only. The web container's nginx serves the SPA and proxies
+# /api/* to the api container inside the training-backend network.
+training.{$BASE_DOMAIN} {
+	tls internal
+	import security_headers
+
+	@mgmt remote_ip {$MGMT_ALLOWED_SUBNET}
+	handle @mgmt {
+		reverse_proxy training-web:8080 {
+			import proxy_headers
+		}
+	}
+
+	respond "Training requires VPN or LAN access" 403
+}
+
+# =========================
 # Jitsi Meet
 # =========================
 

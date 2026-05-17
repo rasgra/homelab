@@ -1,0 +1,60 @@
+services:
+  training-db:
+    profiles: ["training"]
+    image: postgres:16
+    container_name: training-db
+    restart: unless-stopped
+    env_file:
+      - ../.env
+      - ./.env.secrets
+    networks:
+      training-backend:
+        aliases:
+          - db
+    volumes:
+      - ${DATA_DIR}/training/db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U track -d track"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  training-api:
+    profiles: ["training"]
+    build:
+      context: ../../training/api
+    container_name: training-api
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ../.env
+      - ./.env.secrets
+    environment:
+      ENV: production
+      ALLOW_REGISTRATION: "false"
+      SESSION_TTL_DAYS: "14"
+      UPLOAD_DIR: /var/lib/training/uploads
+      MAX_UPLOAD_MB: "10"
+      GARMIN_SYNC_INTERVAL_HOURS: "3"
+      APP_BASE_URL: https://training.${BASE_DOMAIN}
+    depends_on:
+      training-db:
+        condition: service_healthy
+    networks:
+      training-backend:
+        aliases:
+          - api
+    volumes:
+      - ${DATA_DIR}/training/uploads:/var/lib/training/uploads
+
+  training-web:
+    profiles: ["training"]
+    build:
+      context: ../../training/web
+    container_name: training-web
+    restart: unless-stopped
+    depends_on:
+      - training-api
+    networks:
+      - frontend
+      - training-backend

@@ -21,6 +21,11 @@ networks:
     external: false
     internal: true
     name: nextcloud-backend
+  training-backend:
+    driver: bridge
+    external: false
+    internal: true
+    name: training-backend
 
 include:
   - ./caddy/compose.yml
@@ -30,5 +35,6 @@ include:
   - ./jitsi-deploy/compose.yml
   - ./unifi/compose.yml
   - ./finance/compose.yml
+  - ./training/compose.yml
 
 

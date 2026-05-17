@@ -119,6 +119,23 @@ if [[ $PROFILES == *"jitsi"* ]] && [[ ! -f "$SCRIPT_DIR/jitsi-deploy/.env.secret
     prompt_secret "JVB auth password" JVB_AUTH_PASSWORD
 fi
 
+if [[ $PROFILES == *"training"* ]] && [[ ! -f "$SCRIPT_DIR/training/.env.secrets" ]]; then
+    info "Generating training/.env.secrets..."
+    TRAINING_SECRET_KEY=$(openssl rand -hex 32)
+    TRAINING_GARMIN_KEY=$(python3 -c "import os, base64; print(base64.b64encode(os.urandom(32)).decode())")
+    TRAINING_PG_PASSWORD=$(generate_secret)
+    mkdir -p "$SCRIPT_DIR/training"
+    cat > "$SCRIPT_DIR/training/.env.secrets" << EOF
+POSTGRES_USER=track
+POSTGRES_PASSWORD=$TRAINING_PG_PASSWORD
+POSTGRES_DB=track
+DATABASE_URL=postgresql+psycopg://track:$TRAINING_PG_PASSWORD@db:5432/track
+SECRET_KEY=$TRAINING_SECRET_KEY
+GARMIN_CREDS_KEY=$TRAINING_GARMIN_KEY
+EOF
+    chmod 600 "$SCRIPT_DIR/training/.env.secrets"
+fi
+
 if [[ ! -f "$SCRIPT_DIR/.env" ]]; then
     info "Creating root .env..."
 
@@ -227,6 +244,14 @@ if [[ $PROFILES == *"finance"* ]]; then
     # Finance runs as root inside the container; keep host ownership matching.
     sudo chown -R root:root "$DATA_DIR/finance"
     sudo chmod 755 "$DATA_DIR/finance"
+fi
+
+if [[ $PROFILES == *"training"* ]]; then
+    sudo mkdir -p "$DATA_DIR/training/db" "$DATA_DIR/training/uploads"
+    # postgres official image runs as uid 999, api image as uid 10001.
+    sudo chown -R 999:999 "$DATA_DIR/training/db"
+    sudo chown -R 10001:10001 "$DATA_DIR/training/uploads"
+    sudo chmod 750 "$DATA_DIR/training/db" "$DATA_DIR/training/uploads"
 fi
 
 # Copy Caddyfile
