@@ -25,53 +25,54 @@ echo "  Homelab Stack Setup"
 echo "========================================="
 echo
 
-# Check if already configured
 if [[ -f "$SCRIPT_DIR/.env" ]]; then
-    warn "Configuration already exists (.env found)"
-    read -p "Overwrite existing configuration? [y/N] " -n 1 -r
+    info "Using existing $SCRIPT_DIR/.env (re-run mode)"
+    # set -a so sourced vars are exported and visible to docker compose.
+    set -a
+    # shellcheck source=/dev/null
+    source "$SCRIPT_DIR/.env"
+    set +a
+    DOMAIN="$BASE_DOMAIN"
+    PROFILES="$COMPOSE_PROFILES"
+    DATA_DIR="${DATA_DIR:-$DEFAULT_DATA_DIR}"
+    MGMT_ALLOWED_SUBNET="${MGMT_ALLOWED_SUBNET:-}"
+else
+    read -p "Enter your domain [$DEFAULT_DOMAIN]: " DOMAIN
+    DOMAIN=${DOMAIN:-$DEFAULT_DOMAIN}
+
+    read -p "Enter data directory [$DEFAULT_DATA_DIR]: " DATA_DIR
+    DATA_DIR=${DATA_DIR:-$DEFAULT_DATA_DIR}
+
     echo
-    [[ ! $REPLY =~ ^[Yy]$ ]] && exit 0
-fi
-
-# Prompt for configuration
-read -p "Enter your domain [$DEFAULT_DOMAIN]: " DOMAIN
-DOMAIN=${DOMAIN:-$DEFAULT_DOMAIN}
-
-read -p "Enter data directory [$DEFAULT_DATA_DIR]: " DATA_DIR
-DATA_DIR=${DATA_DIR:-$DEFAULT_DATA_DIR}
-
-echo
-echo "Select services to enable:"
-read -p "  Enable Nextcloud? [Y/n] " -n 1 -r ENABLE_NEXTCLOUD
-echo
-read -p "  Enable UISP? [Y/n] " -n 1 -r ENABLE_UISP
-echo
-read -p "  Enable Jitsi? [Y/n] " -n 1 -r ENABLE_JITSI
-echo
-read -p "  Enable UniFi Controller? [Y/n] " -n 1 -r ENABLE_UNIFI
-echo
-
-# Build COMPOSE_PROFILES
-PROFILES=""
-[[ ! $ENABLE_NEXTCLOUD =~ ^[Nn]$ ]] && PROFILES="${PROFILES}nextcloud,"
-[[ ! $ENABLE_UISP =~ ^[Nn]$ ]] && PROFILES="${PROFILES}uisp,"
-[[ ! $ENABLE_JITSI =~ ^[Nn]$ ]] && PROFILES="${PROFILES}jitsi,"
-[[ ! $ENABLE_UNIFI =~ ^[Nn]$ ]] && PROFILES="${PROFILES}unifi,"
-PROFILES=${PROFILES%,}  # Remove trailing comma
-
-# Prompt for MGMT subnet if UISP and/or UniFi are enabled
-MGMT_ALLOWED_SUBNET="$DEFAULT_MGMT_SUBNET"
-if [[ $PROFILES == *"uisp"* ]] || [[ $PROFILES == *"unifi"* ]]; then
+    echo "Select services to enable:"
+    read -p "  Enable Nextcloud? [Y/n] " -n 1 -r ENABLE_NEXTCLOUD
     echo
-    echo "Management GUI access restriction (recommended):"
-    echo "  Provide ONE allowed subnet in CIDR (example: 192.168.2.0/24 or 172.16.1.0/24)."
-    echo "  Leave blank to skip restriction (NOT recommended if exposed externally)."
-    read -p "  Allowed subnet for UISP/UniFi GUIs [$DEFAULT_MGMT_SUBNET]: " MGMT_ALLOWED_SUBNET
-    MGMT_ALLOWED_SUBNET=${MGMT_ALLOWED_SUBNET:-$DEFAULT_MGMT_SUBNET}
+    read -p "  Enable UISP? [Y/n] " -n 1 -r ENABLE_UISP
+    echo
+    read -p "  Enable Jitsi? [Y/n] " -n 1 -r ENABLE_JITSI
+    echo
+    read -p "  Enable UniFi Controller? [Y/n] " -n 1 -r ENABLE_UNIFI
+    echo
 
-    # Basic CIDR sanity check (lightweight)
-    if [[ -n "$MGMT_ALLOWED_SUBNET" ]] && [[ ! "$MGMT_ALLOWED_SUBNET" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$ ]]; then
-        error "Invalid CIDR format: '$MGMT_ALLOWED_SUBNET' (expected e.g. 192.168.2.0/24)"
+    PROFILES=""
+    [[ ! $ENABLE_NEXTCLOUD =~ ^[Nn]$ ]] && PROFILES="${PROFILES}nextcloud,"
+    [[ ! $ENABLE_UISP =~ ^[Nn]$ ]] && PROFILES="${PROFILES}uisp,"
+    [[ ! $ENABLE_JITSI =~ ^[Nn]$ ]] && PROFILES="${PROFILES}jitsi,"
+    [[ ! $ENABLE_UNIFI =~ ^[Nn]$ ]] && PROFILES="${PROFILES}unifi,"
+    PROFILES=${PROFILES%,}
+
+    MGMT_ALLOWED_SUBNET="$DEFAULT_MGMT_SUBNET"
+    if [[ $PROFILES == *"uisp"* ]] || [[ $PROFILES == *"unifi"* ]]; then
+        echo
+        echo "Management GUI access restriction (recommended):"
+        echo "  Provide ONE allowed subnet in CIDR (example: 192.168.2.0/24 or 172.16.1.0/24)."
+        echo "  Leave blank to skip restriction (NOT recommended if exposed externally)."
+        read -p "  Allowed subnet for UISP/UniFi GUIs [$DEFAULT_MGMT_SUBNET]: " MGMT_ALLOWED_SUBNET
+        MGMT_ALLOWED_SUBNET=${MGMT_ALLOWED_SUBNET:-$DEFAULT_MGMT_SUBNET}
+
+        if [[ -n "$MGMT_ALLOWED_SUBNET" ]] && [[ ! "$MGMT_ALLOWED_SUBNET" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$ ]]; then
+            error "Invalid CIDR format: '$MGMT_ALLOWED_SUBNET' (expected e.g. 192.168.2.0/24)"
+        fi
     fi
 fi
 
@@ -102,28 +103,27 @@ prompt_secret() {
     printf -v "$var_name" '%s' "$value"
 }
 
-echo
-echo "Configure secrets:"
-
-if [[ $PROFILES == *"nextcloud"* ]]; then
+if [[ $PROFILES == *"nextcloud"* ]] && [[ ! -f "$SCRIPT_DIR/nextcloud/.env.secrets" ]]; then
+    echo
+    echo "Configure secrets:"
     echo
     echo "Nextcloud/MariaDB:"
     prompt_secret "MySQL password" MYSQL_PASSWORD
     prompt_secret "MySQL root password" MYSQL_ROOT_PASSWORD
 fi
 
-if [[ $PROFILES == *"jitsi"* ]]; then
+if [[ $PROFILES == *"jitsi"* ]] && [[ ! -f "$SCRIPT_DIR/jitsi-deploy/.env.secrets" ]]; then
     echo
     echo "Jitsi:"
     prompt_secret "Jicofo auth password" JICOFO_AUTH_PASSWORD
     prompt_secret "JVB auth password" JVB_AUTH_PASSWORD
 fi
 
-# Create root .env
-info "Creating root .env..."
+if [[ ! -f "$SCRIPT_DIR/.env" ]]; then
+    info "Creating root .env..."
 
-{
-    cat << EOF
+    {
+        cat << EOF
 # Base domain for all services
 BASE_DOMAIN=$DOMAIN
 
@@ -135,41 +135,47 @@ DATA_DIR=$DATA_DIR
 COMPOSE_PROFILES=$PROFILES
 EOF
 
-    # Only add management subnet if UISP and/or UniFi are enabled
-    if [[ $PROFILES == *"uisp"* ]] || [[ $PROFILES == *"unifi"* ]]; then
-        cat << EOF
+        if [[ $PROFILES == *"uisp"* ]] || [[ $PROFILES == *"unifi"* ]]; then
+            cat << EOF
 
 # Restrict management GUIs (UISP + UniFi) to a single subnet (CIDR)
 # Example: 192.168.2.0/24
 MGMT_ALLOWED_SUBNET=$MGMT_ALLOWED_SUBNET
 EOF
-    fi
-} > "$SCRIPT_DIR/.env"
+        fi
+    } > "$SCRIPT_DIR/.env"
+fi
 
-# Create nextcloud .env files
 if [[ $PROFILES == *"nextcloud"* ]]; then
-    info "Creating nextcloud/.env..."
-    sed "s/\${BASE_DOMAIN}/$DOMAIN/g" "$SCRIPT_DIR/nextcloud/.env.example" > "$SCRIPT_DIR/nextcloud/.env"
+    if [[ ! -f "$SCRIPT_DIR/nextcloud/.env" ]]; then
+        info "Creating nextcloud/.env..."
+        sed "s/\${BASE_DOMAIN}/$DOMAIN/g" "$SCRIPT_DIR/nextcloud/.env.example" > "$SCRIPT_DIR/nextcloud/.env"
+    fi
 
-    info "Creating nextcloud/.env.secrets..."
-    cat > "$SCRIPT_DIR/nextcloud/.env.secrets" << EOF
+    if [[ ! -f "$SCRIPT_DIR/nextcloud/.env.secrets" ]]; then
+        info "Creating nextcloud/.env.secrets..."
+        cat > "$SCRIPT_DIR/nextcloud/.env.secrets" << EOF
 MYSQL_PASSWORD=$MYSQL_PASSWORD
 MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
 EOF
+    fi
 fi
 
-# Create jitsi .env files
 if [[ $PROFILES == *"jitsi"* ]]; then
-    info "Creating jitsi-deploy/.env..."
-    sed "s/\${BASE_DOMAIN}/$DOMAIN/g" "$SCRIPT_DIR/jitsi-deploy/.env.example" > "$SCRIPT_DIR/jitsi-deploy/.env"
+    if [[ ! -f "$SCRIPT_DIR/jitsi-deploy/.env" ]]; then
+        info "Creating jitsi-deploy/.env..."
+        sed "s/\${BASE_DOMAIN}/$DOMAIN/g" "$SCRIPT_DIR/jitsi-deploy/.env.example" > "$SCRIPT_DIR/jitsi-deploy/.env"
+    fi
 
-    info "Creating jitsi-deploy/.env.secrets..."
-    cat > "$SCRIPT_DIR/jitsi-deploy/.env.secrets" << EOF
+    if [[ ! -f "$SCRIPT_DIR/jitsi-deploy/.env.secrets" ]]; then
+        info "Creating jitsi-deploy/.env.secrets..."
+        cat > "$SCRIPT_DIR/jitsi-deploy/.env.secrets" << EOF
 JICOFO_AUTH_USER=focus
 JVB_AUTH_USER=jvb
 JICOFO_AUTH_PASSWORD=$JICOFO_AUTH_PASSWORD
 JVB_AUTH_PASSWORD=$JVB_AUTH_PASSWORD
 EOF
+    fi
 fi
 
 # Create data directories
