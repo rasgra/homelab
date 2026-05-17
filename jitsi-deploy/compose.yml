@@ -34,7 +34,7 @@ services:
 
   prosody:
     profiles: ["jitsi"]
-    image: jitsi/prosody:stable-10655
+    image: jitsi/prosody:stable-10888
     restart: unless-stopped
     networks:
       - jitsi-backend
@@ -52,7 +52,7 @@ services:
 
   jicofo:
     profiles: ["jitsi"]
-    image: jitsi/jicofo:stable-10655
+    image: jitsi/jicofo:stable-10888
     restart: unless-stopped
     networks:
       - jitsi-backend
@@ -72,7 +72,7 @@ services:
 
   jvb:
     profiles: ["jitsi"]
-    image: jitsi/jvb:stable-10655
+    image: jitsi/jvb:stable-10888
     restart: unless-stopped
     networks:
       - jitsi-backend
