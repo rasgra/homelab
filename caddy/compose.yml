@@ -8,9 +8,11 @@ services:
     networks:
       - frontend
     # host.docker.internal lets Caddy reach services that run with
-    # network_mode: host (e.g. homeassistant on :8123).
+    # network_mode: host (e.g. homeassistant on :8123). Pinned to the
+    # frontend bridge gateway because host-gateway resolves to docker0
+    # (172.17.0.1) which is unreachable from this user-defined bridge.
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "host.docker.internal:172.22.0.1"
     ports:
       - "80:80"
       - "443:443"

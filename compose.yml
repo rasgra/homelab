@@ -6,6 +6,11 @@ networks:
     external: false
     internal: false
     name: frontend
+    # Pin subnet so host.docker.internal can resolve to a stable gateway.
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16
+          gateway: 172.22.0.1
   uisp-backend:
     driver: bridge
     external: false
