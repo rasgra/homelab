@@ -540,6 +540,17 @@ setup_firewall() {
   sudo ufw status verbose || true
 }
 
+# Always ensure the frontend bridge can reach host-networked services
+# (e.g. home assistant on host net). UFW default-deny on INPUT blocks
+# packets from the bridge to the host without this rule. Idempotent —
+# UFW skips duplicate adds.
+if command -v ufw >/dev/null 2>&1 && sudo ufw status 2>/dev/null | grep -q "^Status: active"; then
+    if ! sudo ufw status 2>/dev/null | grep -q "172.22.0.0/16"; then
+        info "Allowing frontend bridge (172.22.0.0/16) to reach host in UFW..."
+        sudo ufw allow from 172.22.0.0/16 to 172.22.0.1 comment 'frontend bridge to host'
+    fi
+fi
+
 # Ask if user wants to set up firewall
 echo
 read -p "Configure UFW firewall now? [y/N] " -n 1 -r SETUP_FIREWALL
