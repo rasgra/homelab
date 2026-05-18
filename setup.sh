@@ -300,17 +300,26 @@ if [[ $PROFILES == *"zigbee2mqtt"* ]]; then
     sudo chown -R root:root "$DATA_DIR/zigbee2mqtt"
     sudo chmod 755 "$DATA_DIR/zigbee2mqtt"
 
-    # Mosquitto password file (hashed). Generated via the mosquitto
-    # image so we do not need mosquitto_passwd on the host.
+    # Mosquitto password file (hashed). The mosquitto image's default
+    # entrypoint intercepts shell-style commands, so we override the
+    # entrypoint to mosquitto_passwd directly and call it once per user.
+    # The bind-mounted /m gives us the resulting file on the host. Args
+    # are -c -b separated; mosquitto 2.1.2's parser silently rejects
+    # the combined -bc form and prints its help text.
     if [[ ! -f "$DATA_DIR/mosquitto/config/passwd" ]]; then
         # shellcheck source=/dev/null
         source "$SCRIPT_DIR/zigbee2mqtt/.env.secrets"
         info "Generating mosquitto password file..."
-        docker run --rm eclipse-mosquitto:2 sh -c "
-            mosquitto_passwd -bc /tmp/p '$MQTT_HA_USER' '$MQTT_HA_PASSWORD' &&
-            mosquitto_passwd -b /tmp/p '$MQTT_Z2M_USER' '$MQTT_Z2M_PASSWORD' &&
-            cat /tmp/p" \
-            | sudo tee "$DATA_DIR/mosquitto/config/passwd" > /dev/null
+        docker run --rm \
+            -v "$DATA_DIR/mosquitto/config:/m" \
+            --entrypoint mosquitto_passwd \
+            eclipse-mosquitto:2 \
+            -c -b /m/passwd "$MQTT_HA_USER" "$MQTT_HA_PASSWORD"
+        docker run --rm \
+            -v "$DATA_DIR/mosquitto/config:/m" \
+            --entrypoint mosquitto_passwd \
+            eclipse-mosquitto:2 \
+            -b /m/passwd "$MQTT_Z2M_USER" "$MQTT_Z2M_PASSWORD"
         sudo chown 1883:1883 "$DATA_DIR/mosquitto/config/passwd"
         sudo chmod 600 "$DATA_DIR/mosquitto/config/passwd"
     fi
@@ -346,7 +355,7 @@ serial:
   port: tcp://192.168.22.199:6638
   adapter: ember
 frontend:
-  port: 8099
+  port: 8080
   host: 0.0.0.0
 advanced:
   network_key: GENERATE
