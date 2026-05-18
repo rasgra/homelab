@@ -185,7 +185,7 @@ zigbee.{$BASE_DOMAIN} {
 
 	@mgmt remote_ip {$MGMT_ALLOWED_SUBNET}
 	handle @mgmt {
-		reverse_proxy zigbee2mqtt:8099 {
+		reverse_proxy zigbee2mqtt:8080 {
 			import proxy_headers
 		}
 	}
