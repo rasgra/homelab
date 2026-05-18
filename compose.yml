@@ -45,5 +45,6 @@ include:
   - ./finance/compose.yml
   - ./training/compose.yml
   - ./homeassistant/compose.yml
+  - ./zigbee2mqtt/compose.yml
 
 

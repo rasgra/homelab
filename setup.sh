@@ -136,6 +136,20 @@ EOF
     chmod 600 "$SCRIPT_DIR/training/.env.secrets"
 fi
 
+if [[ $PROFILES == *"zigbee2mqtt"* ]] && [[ ! -f "$SCRIPT_DIR/zigbee2mqtt/.env.secrets" ]]; then
+    info "Generating zigbee2mqtt/.env.secrets..."
+    MQTT_HA_PASSWORD=$(generate_secret)
+    MQTT_Z2M_PASSWORD=$(generate_secret)
+    mkdir -p "$SCRIPT_DIR/zigbee2mqtt"
+    cat > "$SCRIPT_DIR/zigbee2mqtt/.env.secrets" << EOF
+MQTT_HA_USER=homeassistant
+MQTT_HA_PASSWORD=$MQTT_HA_PASSWORD
+MQTT_Z2M_USER=zigbee2mqtt
+MQTT_Z2M_PASSWORD=$MQTT_Z2M_PASSWORD
+EOF
+    chmod 600 "$SCRIPT_DIR/zigbee2mqtt/.env.secrets"
+fi
+
 if [[ ! -f "$SCRIPT_DIR/.env" ]]; then
     info "Creating root .env..."
 
@@ -273,6 +287,71 @@ http:
   trusted_proxies:
     - 172.22.0.0/16
 EOF
+    fi
+fi
+
+if [[ $PROFILES == *"zigbee2mqtt"* ]]; then
+    sudo mkdir -p "$DATA_DIR/mosquitto/config" "$DATA_DIR/mosquitto/data"
+    sudo mkdir -p "$DATA_DIR/zigbee2mqtt/data"
+    # mosquitto runs as uid 1883 inside the official image.
+    sudo chown -R 1883:1883 "$DATA_DIR/mosquitto"
+    sudo chmod 755 "$DATA_DIR/mosquitto"
+    # zigbee2mqtt runs as root inside the container.
+    sudo chown -R root:root "$DATA_DIR/zigbee2mqtt"
+    sudo chmod 755 "$DATA_DIR/zigbee2mqtt"
+
+    # Mosquitto password file (hashed). Generated via the mosquitto
+    # image so we do not need mosquitto_passwd on the host.
+    if [[ ! -f "$DATA_DIR/mosquitto/config/passwd" ]]; then
+        # shellcheck source=/dev/null
+        source "$SCRIPT_DIR/zigbee2mqtt/.env.secrets"
+        info "Generating mosquitto password file..."
+        docker run --rm eclipse-mosquitto:2 sh -c "
+            mosquitto_passwd -bc /tmp/p '$MQTT_HA_USER' '$MQTT_HA_PASSWORD' &&
+            mosquitto_passwd -b /tmp/p '$MQTT_Z2M_USER' '$MQTT_Z2M_PASSWORD' &&
+            cat /tmp/p" \
+            | sudo tee "$DATA_DIR/mosquitto/config/passwd" > /dev/null
+        sudo chown 1883:1883 "$DATA_DIR/mosquitto/config/passwd"
+        sudo chmod 600 "$DATA_DIR/mosquitto/config/passwd"
+    fi
+
+    # Mosquitto config
+    if [[ ! -f "$DATA_DIR/mosquitto/config/mosquitto.conf" ]]; then
+        sudo tee "$DATA_DIR/mosquitto/config/mosquitto.conf" > /dev/null <<'EOF'
+listener 1883
+persistence true
+persistence_location /mosquitto/data/
+log_dest stdout
+allow_anonymous false
+password_file /mosquitto/config/passwd
+EOF
+        sudo chown 1883:1883 "$DATA_DIR/mosquitto/config/mosquitto.conf"
+        sudo chmod 644 "$DATA_DIR/mosquitto/config/mosquitto.conf"
+    fi
+
+    # Zigbee2MQTT configuration.yaml. Talks to mosquitto over docker DNS
+    # and to the Sonoff Dongle Max over LAN serial-over-IP. Existing
+    # config is left untouched so manual edits survive setup re-runs.
+    if [[ ! -f "$DATA_DIR/zigbee2mqtt/data/configuration.yaml" ]]; then
+        # shellcheck source=/dev/null
+        source "$SCRIPT_DIR/zigbee2mqtt/.env.secrets"
+        sudo tee "$DATA_DIR/zigbee2mqtt/data/configuration.yaml" > /dev/null <<EOF
+homeassistant: true
+permit_join: false
+mqtt:
+  server: mqtt://mosquitto
+  user: $MQTT_Z2M_USER
+  password: $MQTT_Z2M_PASSWORD
+serial:
+  port: tcp://192.168.22.199:6638
+  adapter: ember
+frontend:
+  port: 8099
+  host: 0.0.0.0
+advanced:
+  network_key: GENERATE
+EOF
+        sudo chmod 600 "$DATA_DIR/zigbee2mqtt/data/configuration.yaml"
     fi
 fi
 
