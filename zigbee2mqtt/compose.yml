@@ -1,0 +1,31 @@
+services:
+  mosquitto:
+    profiles: ["zigbee2mqtt"]
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    restart: unless-stopped
+    networks:
+      - frontend
+    # Bound to loopback only so home assistant (running with
+    # network_mode: host) can reach the broker at 127.0.0.1:1883.
+    # Z2M (on the frontend bridge) reaches it via docker DNS as
+    # mosquitto:1883.
+    ports:
+      - "127.0.0.1:1883:1883"
+    volumes:
+      - ${DATA_DIR}/mosquitto/config:/mosquitto/config:ro
+      - ${DATA_DIR}/mosquitto/data:/mosquitto/data
+
+  zigbee2mqtt:
+    profiles: ["zigbee2mqtt"]
+    image: koenkk/zigbee2mqtt:2.10.1
+    container_name: zigbee2mqtt
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    networks:
+      - frontend
+    volumes:
+      - ${DATA_DIR}/zigbee2mqtt/data:/app/data
+    environment:
+      - TZ=Europe/Stockholm
