@@ -566,7 +566,16 @@ setup_firewall() {
     defaults_ok=1
   fi
 
-  if [[ "$existing" == "$desired" ]] && [[ "$defaults_ok" -eq 1 ]]; then
+  # Source-CIDR rule for the docker frontend bridge to reach host-networked
+  # services (Home Assistant on host:8123). Not port-based, so it lives
+  # outside DESIRED_RULES, but checked here so the early-return below
+  # does not skip it when port rules already match.
+  local bridge_rule_present=0
+  if grep -q "172\.22\.0\.0/16" <<<"$status_verbose"; then
+    bridge_rule_present=1
+  fi
+
+  if [[ "$existing" == "$desired" ]] && [[ "$defaults_ok" -eq 1 ]] && [[ "$bridge_rule_present" -eq 1 ]]; then
     info "UFW already matches the desired rule set and default policies. No changes needed."
     return 0
   fi
@@ -635,6 +644,16 @@ setup_firewall() {
   else
     warn "Skipping allow rules."
   fi
+
+  # Always (re-)apply the frontend bridge rule. Required for Caddy to
+  # reach host-networked services. UFW skips duplicates silently, so
+  # this is safe even when the rule is already present. Re-applied
+  # unconditionally because the reset path above wipes it.
+  if [[ "$bridge_rule_present" -eq 0 ]]; then
+    info "Adding frontend bridge (172.22.0.0/16) to host rule..."
+  fi
+  sudo ufw allow from 172.22.0.0/16 to 172.22.0.1 \
+      comment 'frontend bridge to host' >/dev/null 2>&1 || true
 
   read -p "Enable UFW now? [y/N] " -n 1 -r
   echo
