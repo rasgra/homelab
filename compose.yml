@@ -24,7 +24,10 @@ networks:
   training-backend:
     driver: bridge
     external: false
-    internal: true
+    # internal: false so training-api can reach Garmin's auth endpoints
+    # for the Garmin Connect sync. Containers still are not reachable
+    # from outside the host — no ports mapped.
+    internal: false
     name: training-backend
 
 include:
