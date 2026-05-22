@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""
+scripts/check-space — Check disk/volume space usage.
+
+Usage: ./scripts/check-space [OPTIONS]
+
+Options:
+  --warn-pct N    Warn threshold percent (default: 80)
+  --crit-pct N    Critical threshold percent (default: 90)
+  --quiet         Only print on issues; exit non-zero if any
+  --json          Output one JSON object per filesystem
+  --notify        Send Telegram notification on issues
+  -h, --help      Show this message
+"""
+
+import json
+import os
+import shutil
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+SKIP_TYPES = {"tmpfs", "devtmpfs", "overlay", "squashfs", "loop",
+              "sysfs", "proc", "devpts", "cgroup", "cgroup2",
+              "pstore", "mqueue", "hugetlbfs", "debugfs", "securityfs",
+              "configfs", "fusectl", "bpf", "tracefs", "nsfs"}
+
+
+def get_mounts():
+    mounts = []
+    try:
+        with open("/proc/mounts") as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                device, mountpoint, fstype = parts[0], parts[1], parts[2]
+                if fstype in SKIP_TYPES:
+                    continue
+                if mountpoint.startswith(("/sys", "/proc", "/dev")):
+                    continue
+                if device in ("none", "overlay") or device.startswith("overlay"):
+                    continue
+                mounts.append((mountpoint, fstype, device))
+    except Exception:
+        pass
+    seen = {}
+    for mp, ft, dev in sorted(mounts, key=lambda x: len(x[0])):
+        if dev not in seen:
+            seen[dev] = (mp, ft)
+    return [(mp, ft, dev) for dev, (mp, ft) in seen.items()]
+
+
+def check_space(warn_pct, crit_pct):
+    results = []
+    for mountpoint, fstype, device in get_mounts():
+        try:
+            stat = shutil.disk_usage(mountpoint)
+        except Exception:
+            continue
+        if stat.total == 0:
+            continue
+        used_pct = stat.used * 100 // stat.total
+        results.append({
+            "mountpoint": mountpoint,
+            "used_pct":   used_pct,
+            "used_gb":    round(stat.used  / 1e9, 1),
+            "free_gb":    round(stat.free  / 1e9, 1),
+            "total_gb":   round(stat.total / 1e9, 1),
+            "status":     "critical" if used_pct >= crit_pct
+                          else "warning" if used_pct >= warn_pct
+                          else "ok",
+        })
+    return sorted(results, key=lambda r: r["used_pct"], reverse=True)
+
+
+def main():
+    warn_pct = int(sys.argv[sys.argv.index("--warn-pct") + 1]) if "--warn-pct" in sys.argv else 80
+    crit_pct = int(sys.argv[sys.argv.index("--crit-pct") + 1]) if "--crit-pct" in sys.argv else 90
+    quiet  = "--quiet"  in sys.argv
+    notify = "--notify" in sys.argv
+    as_json = "--json"  in sys.argv
+
+    if "-h" in sys.argv or "--help" in sys.argv:
+        print(__doc__); sys.exit(0)
+
+    if sys.stdout.isatty():
+        RED="\033[0;31m"; YELLOW="\033[1;33m"; GREEN="\033[0;32m"; BOLD="\033[1m"; NC="\033[0m"
+    else:
+        RED=YELLOW=GREEN=BOLD=NC=""
+
+    COLORS = {"ok": GREEN, "warning": YELLOW, "critical": RED}
+    LABELS = {"ok": "  OK  ", "warning": "WARNING", "critical": "CRITICAL"}
+
+    results = check_space(warn_pct, crit_pct)
+    worst = "ok"
+    issue_lines = []
+
+    for r in results:
+        s = r["status"]
+        if s == "critical" or (s == "warning" and worst == "ok"):
+            worst = s
+        if as_json:
+            print(json.dumps(r)); continue
+        if quiet and s == "ok":
+            continue
+        c = COLORS[s]
+        bar = "█" * (r["used_pct"] // 5) + "░" * (20 - r["used_pct"] // 5)
+        print(f"{c}{BOLD}[{LABELS[s]}]{NC} {r['mountpoint']:<25} "
+              f"{bar} {r['used_pct']:3d}%  "
+              f"{r['used_gb']:.1f}/{r['total_gb']:.1f} GB")
+        if s != "ok":
+            issue_lines.append(
+                f"{r['mountpoint']}: {r['used_pct']}% used "
+                f"({r['free_gb']:.1f} GB free of {r['total_gb']:.1f} GB)")
+
+    if notify and worst != "ok":
+        sys.path.insert(0, str(SCRIPT_DIR))
+        from notify import send, Level
+        level = Level.CRITICAL if worst == "critical" else Level.WARNING
+        send(level, "Disk Space Alert", "\n".join(issue_lines))
+
+    sys.exit(0 if worst == "ok" else 1)
+
+
+if __name__ == "__main__":
+    main()
