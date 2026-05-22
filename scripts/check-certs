@@ -25,6 +25,7 @@ CRIT_DAYS=7
 QUIET=false
 JSON=false
 NAGIOS=false
+NOTIFY=false
 DATA_DIR_ARG=""
 EXTRA_DOMAINS=()
 
@@ -46,6 +47,7 @@ while [[ $# -gt 0 ]]; do
         --quiet)     QUIET=true;        shift ;;
         --json)      JSON=true;         shift ;;
         --nagios)    NAGIOS=true;       shift ;;
+        --notify)    NOTIFY=true;       shift ;;
         --data-dir)  DATA_DIR_ARG="$2"; shift 2 ;;
         -h|--help)   usage; exit 0 ;;
         -*)          echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
@@ -256,6 +258,21 @@ done <<< "$domains"
 if [[ "$JSON" != true && "$QUIET" != true ]]; then
     printf '%0.s─' {1..72}; echo
     echo
+fi
+
+if [[ "$NOTIFY" == true && "$worst_status" != "ok" ]]; then
+    msg=""
+    while IFS= read -r domain; do
+        [[ -z "$domain" ]] && continue
+        result=$(check_domain "$domain")
+        local_status="${result%%|*}"; local_status="${local_status#status=}"
+        [[ "$local_status" == "ok" ]] && continue
+        parse_result "$result"
+        msg+="${domain}: expires ${expires} (${days_left} days)"$'\n'
+    done <<< "$domains"
+    level="warning"; [[ "$worst_status" == "crit" || "$worst_status" == "expired" ]] && level="critical"
+    python3 "$SCRIPT_DIR/scripts/notify" --level "$level" \
+        --title "Certificate Alert" --message "$msg" 2>/dev/null || true
 fi
 
 if [[ "$NAGIOS" == true ]]; then

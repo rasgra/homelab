@@ -12,10 +12,11 @@ docker compose up -d
 The setup script will:
 - Prompt for your domain and data directory
 - Let you choose which services to enable
-- Let you choose GUI subnet restriction for uisp & unifi
+- Let you choose GUI subnet restriction for UISP & UniFi
 - Generate secure passwords automatically
-- Create all required directories
-- Copy configuration files
+- Create all required directories and copy configuration files
+- Optionally configure UFW firewall rules
+- Optionally configure Telegram notifications and install monitoring cron jobs
 
 ## Manual Configuration
 
@@ -25,7 +26,7 @@ If you prefer manual setup or need to modify existing configuration:
 
 | File | Template | Description |
 |------|----------|-------------|
-| `.env` | `.env.example` | Root config (domain, data dir, profiles) |
+| `.env` | `.env.example` | Root config (domain, data dir, profiles, notifications) |
 | `nextcloud/.env` | `nextcloud/.env.example` | Nextcloud settings |
 | `nextcloud/.env.secrets` | `nextcloud/.env.secrets.example` | Database passwords |
 | `jitsi-deploy/.env` | `jitsi-deploy/.env.example` | Jitsi settings |
@@ -38,7 +39,9 @@ If you prefer manual setup or need to modify existing configuration:
 | `BASE_DOMAIN` | Base domain for all services | `stormyra.se` |
 | `DATA_DIR` | Root directory for persistent data | `/opt/stack` |
 | `COMPOSE_PROFILES` | Services to enable | `nextcloud,uisp,jitsi,unifi` |
-| `MGMT_ALLOWED_SUBNET` | GUI subnet restriction | `xxx.xxx.xxx.xxx/xx` |
+| `MGMT_ALLOWED_SUBNET` | GUI subnet restriction for UISP/UniFi | `xxx.xxx.xxx.xxx/xx` |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token (from @BotFather) | _(optional)_ |
+| `TELEGRAM_CHAT_ID` | Telegram chat or group ID for alerts | _(optional)_ |
 
 ### Secrets
 
@@ -144,8 +147,7 @@ networks:
 If you've edited the Caddyfile or a project's caddy snippet and want to push the changes without re-running setup:
 
 ```bash
-./scripts/update-caddyfile
-docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+./scripts/update-caddyfile --reload
 ```
 
 ## Data Directory
@@ -169,7 +171,6 @@ All data stored under `${DATA_DIR}` (default `/opt/stack`):
 │   └── logs/
 ├── jitsi/
 │   ├── web/
-│   ├── web-public/
 │   ├── prosody/
 │   ├── jicofo/
 │   └── jvb/
@@ -244,6 +245,7 @@ docker compose exec -u www-data nextcloud php occ files:scan --all
 | Service | URL |
 |---------|-----|
 | Nextcloud | `https://nextcloud.${BASE_DOMAIN}` |
+| Collabora (Nextcloud Office) | `https://collabora.${BASE_DOMAIN}` |
 | UISP | `https://uisp.${BASE_DOMAIN}` |
 | Jitsi | `https://meet.${BASE_DOMAIN}` |
 | UniFi | `https://unifi.${BASE_DOMAIN}` |
@@ -263,11 +265,41 @@ docker compose logs -f [service]
 # Restart service
 docker compose restart [service]
 
-# Rebuild Nextcloud image
-docker compose build nextcloud
+# Rebuild Nextcloud image (after base image update)
+docker compose build nextcloud && docker compose up -d nextcloud
 ```
 
 ## Maintenance
+
+### Check disk health
+
+```bash
+sudo ./scripts/check-disks
+```
+
+Reads S.M.A.R.T. data from all physical drives (SATA and NVMe). Checks overall health, reallocated/pending/uncorrectable sectors, SSD remaining life, temperature, and power-on time.
+
+| Option | Description |
+|--------|-------------|
+| `--quiet` | Only print on issues; exit non-zero if any found |
+| `--json` | NDJSON output, one object per drive |
+| `--notify` | Send Telegram alert on issues |
+| `--log FILE` | Append timestamped result to FILE |
+
+### Check disk space
+
+```bash
+./scripts/check-space
+```
+
+Checks usage of all real mounted filesystems. Warns at 80%, critical at 90%.
+
+| Option | Description |
+|--------|-------------|
+| `--warn-pct N` | Warn threshold (default: 80) |
+| `--crit-pct N` | Critical threshold (default: 90) |
+| `--quiet` | Only print on issues |
+| `--notify` | Send Telegram alert on issues |
 
 ### Check TLS certificates
 
@@ -281,18 +313,24 @@ Reads domains from the Caddyfile, connects live, and shows expiry status for eac
 |--------|-------------|
 | `--warn-days N` | Warn threshold in days (default: 30) |
 | `--crit-days N` | Critical threshold in days (default: 7) |
-| `--quiet` | Print only warnings/errors; exit non-zero if any found — suitable for cron |
-| `--json` | NDJSON output, one object per domain — pipe to `jq` |
+| `--quiet` | Print only warnings/errors; exit non-zero if any found |
+| `--json` | NDJSON output, one object per domain |
 | `--nagios` | Nagios/check_mk-compatible exit codes (0 OK, 1 WARN, 2 CRIT, 3 UNKNOWN) |
+| `--notify` | Send Telegram alert on issues |
 | `domain ...` | Check additional domains not in the Caddyfile |
 
-Examples:
+### Watch container health
+
 ```bash
-./scripts/check-certs --warn-days 60          # warn earlier
-./scripts/check-certs --quiet                  # for cron — silent on success
-./scripts/check-certs --json | jq .           # structured output
-./scripts/check-certs extra.example.com       # check an ad-hoc domain
+./scripts/watch-containers
 ```
+
+Alerts when containers are unhealthy or in a restart loop. Uses a state file to avoid repeat notifications — sends once when an issue starts and once when it recovers.
+
+| Option | Description |
+|--------|-------------|
+| `--notify` | Send Telegram alert on new issues and recoveries |
+| `--quiet` | Suppress console output |
 
 ### Check for image updates
 
@@ -300,17 +338,26 @@ Examples:
 ./scripts/update-images
 ```
 
-Scans all compose files for pinned image versions, queries Docker Hub for newer releases, shows a release notes link per image, and prompts before applying each update. Changes are logged to `update-history.log`.
+Scans all compose files and Dockerfiles for pinned image versions, queries Docker Hub for newer releases, shows release notes links, and prompts before applying each update. Changes are logged to `update-history.log`. For Python/Node base images, minor version bumps are flagged as potentially breaking.
 
-```bash
-./scripts/update-images --check-only   # report only, no changes
-```
+| Option | Description |
+|--------|-------------|
+| `--check-only` | Report only, no changes applied |
+| `--notify` | Send Telegram message if updates are found |
 
 To revert an applied update:
 ```bash
 git checkout -- <compose-file>
 docker compose up -d
 ```
+
+### Weekly digest
+
+```bash
+sudo ./scripts/weekly-digest
+```
+
+Runs all checks (disk health, disk space, certificates, container updates, container health) and sends a single Telegram summary. Intended for use as a weekly cron job.
 
 ### Update Caddy config
 
@@ -320,12 +367,45 @@ docker compose up -d
 
 Pushes the repo's Caddyfile and any registered project snippets to `$DATA_DIR/caddy/`. Pass `--reload` to also signal the running Caddy container to reload without restart.
 
+## Notifications
+
+Telegram alerts can be configured during initial setup or at any time:
+
+```bash
+./setup.sh --setup-notifications
+```
+
+This prompts for a bot token and chat ID, writes them to `.env`, sends a test message, and installs monitoring cron jobs into the root crontab.
+
+**Getting credentials:**
+1. Open Telegram → search for **@BotFather** → `/newbot`
+2. Copy the bot token
+3. Add the bot to your group (or use your personal chat with the bot)
+4. Send a message, then visit `https://api.telegram.org/bot<TOKEN>/getUpdates` to find your chat ID
+
+**Cron schedule (installed automatically):**
+
+| Script | Schedule | Description |
+|--------|----------|-------------|
+| `check-disks` | Daily 06:00 | Disk S.M.A.R.T. health |
+| `check-space` | Every 2 hours | Volume usage |
+| `check-certs` | Daily 08:00 | TLS certificate expiry |
+| `update-images` | Monday 09:00 | Container image updates |
+| `watch-containers` | Every 5 minutes | Container health |
+| `weekly-digest` | Sunday 08:00 | Full summary |
+
+**Send a notification manually:**
+```bash
+./scripts/notify --level critical --title "Test" --message "Hello from homelab"
+# Levels: info | warning | critical | ok
+```
+
 ## Network Architecture
 
 | Network | Purpose |
 |---------|---------|
-| `frontend` | Public-facing (Caddy, web services) |
-| `nextcloud-backend` | Internal (Nextcloud, MariaDB, Redis) |
+| `frontend` | Public-facing (Caddy, web services, Collabora) |
+| `nextcloud-backend` | Internal (Nextcloud, MariaDB, Redis, Collabora) |
 | `uisp-backend` | Internal (UISP) |
 | `jitsi-backend` | Internal (Jitsi components) |
 
@@ -351,7 +431,8 @@ Only authenticated users can create meetings. Guests can join existing meetings 
 
 ## Security
 
-- UISP admin (`/nms/*`) restricted to VPN `172.16.1.0/24`
-- Jitsi: only authenticated users can create meetings
+- UISP admin (`/nms/*`) restricted to management subnet
+- UniFi GUI restricted to management subnet
+- Jitsi: only authenticated users can create meetings; guests join via lobby
 - Automatic HTTPS via Caddy with Let's Encrypt
-- Backend networks are isolated
+- Backend networks are isolated from the frontend

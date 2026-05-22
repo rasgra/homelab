@@ -250,6 +250,7 @@ Options:
   -r, --remove-project <path>  Unregister a custom project and remove its Caddy snippet
   -l, --list-projects          List all registered custom projects
   -f, --setup-firewall         Configure UFW firewall rules (reads active profiles from .env)
+  -n, --setup-notifications    Configure Telegram notifications and install monitoring cron jobs
   -h, --help                   Show this help message
 
 Examples:
@@ -258,7 +259,106 @@ Examples:
   ./setup.sh -r ./my-project        # Remove a custom project
   ./setup.sh -l                     # List registered projects
   ./setup.sh -f                     # (Re-)configure UFW firewall
+  ./setup.sh -n                     # (Re-)configure Telegram notifications
 EOF
+}
+
+setup_crontabs() {
+    local sd="$SCRIPT_DIR"
+    declare -A JOBS=(
+        ["check-disks"]="0 6 * * *   $sd/scripts/check-disks --quiet --notify --log /var/log/disk-health.log"
+        ["check-space"]="0 */2 * * * $sd/scripts/check-space --quiet --notify"
+        ["check-certs"]="0 8 * * *   $sd/scripts/check-certs --quiet --notify"
+        ["update-images"]="0 9 * * 1   $sd/scripts/update-images --check-only --notify"
+        ["watch-containers"]="*/5 * * * * $sd/scripts/watch-containers --notify"
+        ["weekly-digest"]="0 8 * * 0   $sd/scripts/weekly-digest"
+    )
+
+    local current; current=$(sudo crontab -l 2>/dev/null || true)
+    local new_entries=""
+
+    for script in "${!JOBS[@]}"; do
+        if echo "$current" | grep -qF "scripts/$script"; then
+            info "Cron job already present: $script"
+        else
+            new_entries+="${JOBS[$script]}"$'\n'
+            info "Adding cron job: $script"
+        fi
+    done
+
+    if [[ -n "$new_entries" ]]; then
+        # Prepend a labelled block if not already there
+        if ! echo "$current" | grep -qF "# homelab monitoring"; then
+            new_entries="# homelab monitoring (added by setup.sh)"$'\n'"$new_entries"
+        fi
+        printf '%s\n%s' "$current" "$new_entries" | sudo crontab -
+        info "Cron jobs installed in root crontab."
+    else
+        info "All cron jobs already configured."
+    fi
+}
+
+cmd_setup_notifications() {
+    if [[ ! -f "$SCRIPT_DIR/.env" ]]; then
+        error "No .env found — run ./setup.sh first to create the initial configuration."
+    fi
+
+    echo
+    echo "========================================="
+    echo "  Telegram Notification Setup"
+    echo "========================================="
+    echo
+    echo "Steps to get your credentials:"
+    echo "  1. Open Telegram and search for @BotFather"
+    echo "  2. Send /newbot and follow the prompts → copy the token"
+    echo "  3. Add the bot to your group (or use your personal chat)"
+    echo "  4. Send a message, then visit:"
+    echo "       https://api.telegram.org/bot<TOKEN>/getUpdates"
+    echo "     to find your chat ID (negative number = group)"
+    echo
+
+    local existing_token
+    existing_token=$(grep "^TELEGRAM_BOT_TOKEN=" "$SCRIPT_DIR/.env" 2>/dev/null | cut -d= -f2)
+    if [[ -n "$existing_token" ]]; then
+        warn "Telegram is already configured (token: ${existing_token:0:10}...)."
+        read -p "Reconfigure? [y/N] " -n 1 -r; echo
+        [[ ! $REPLY =~ ^[Yy]$ ]] && { setup_crontabs; return; }
+    fi
+
+    read -p "  Bot token: " TELEGRAM_BOT_TOKEN
+    [[ -z "$TELEGRAM_BOT_TOKEN" ]] && { warn "Skipping — no token entered."; return; }
+
+    read -p "  Chat ID:   " TELEGRAM_CHAT_ID
+    [[ -z "$TELEGRAM_CHAT_ID" ]] && { warn "Skipping — no chat ID entered."; return; }
+
+    # Write to .env (remove old entries first)
+    sed -i '/^TELEGRAM_BOT_TOKEN=/d; /^TELEGRAM_CHAT_ID=/d; /^# Telegram/d' "$SCRIPT_DIR/.env"
+    {
+        echo ""
+        echo "# Telegram notifications"
+        echo "TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN"
+        echo "TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID"
+    } >> "$SCRIPT_DIR/.env"
+    info "Credentials saved to .env"
+
+    echo "Sending test message..."
+    if python3 "$SCRIPT_DIR/scripts/notify" \
+            --level info \
+            --title "Homelab notifications configured" \
+            --message "Alerts from $(hostname) are now active." 2>/dev/null; then
+        info "Test message sent — check your Telegram."
+    else
+        warn "Could not send test message. Double-check your token and chat ID."
+        return
+    fi
+
+    echo
+    read -p "Install monitoring cron jobs now? [Y/n] " -n 1 -r; echo
+    [[ ! $REPLY =~ ^[Nn]$ ]] && setup_crontabs
+    echo
+    echo "========================================="
+    echo -e "${GREEN}  Notification setup complete!${NC}"
+    echo "========================================="
 }
 
 cmd_setup_firewall() {
@@ -310,6 +410,10 @@ while [[ $# -gt 0 ]]; do
             MODE="setup-firewall"
             shift
             ;;
+        -n|--setup-notifications)
+            MODE="setup-notifications"
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -325,7 +429,8 @@ case "$MODE" in
     add-project)    cmd_add_project    "$PROJECT_ARG"; exit 0 ;;
     remove-project) cmd_remove_project "$PROJECT_ARG"; exit 0 ;;
     list-projects)  cmd_list_projects;                 exit 0 ;;
-    setup-firewall) cmd_setup_firewall;                exit 0 ;;
+    setup-firewall)     cmd_setup_firewall;         exit 0 ;;
+    setup-notifications) cmd_setup_notifications;  exit 0 ;;
 esac
 
 # =========================
@@ -813,3 +918,9 @@ if [[ $SETUP_FIREWALL =~ ^[Yy]$ ]]; then
   echo -e "${GREEN}  Firewall setup complete!${NC}"
   echo "========================================="
 fi
+
+# Ask if user wants to set up Telegram notifications
+echo
+read -p "Configure Telegram notifications now? [y/N] " -n 1 -r SETUP_NOTIFY
+echo
+[[ $SETUP_NOTIFY =~ ^[Yy]$ ]] && cmd_setup_notifications
