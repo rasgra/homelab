@@ -2,8 +2,9 @@
 """
 scripts/update-images — Check for newer Docker image versions in compose files.
 
-Usage: ./scripts/update-images [--check-only]
+Usage: ./scripts/update-images [--check-only] [--notify]
   --check-only   Show available updates without applying anything
+  --notify       Send Telegram notification if updates are found
 """
 
 import json
@@ -314,6 +315,7 @@ def log_update(file_path, old_ref, new_ref):
 
 def main():
     check_only = "--check-only" in sys.argv
+    notify     = "--notify"     in sys.argv
 
     compose_files, dockerfiles = find_source_files()
 
@@ -359,6 +361,18 @@ def main():
     if not updates_available:
         print(f"\n{GREEN}All images are up to date.{RESET}\n")
         sys.exit(0)
+
+    if notify:
+        sys.path.insert(0, str(HOMELAB_DIR / "scripts"))
+        from notify import send, Level
+        lines = []
+        for ref, name, tag, in_track, overall, _ in updates_available:
+            if in_track:
+                lines.append(f"{name}: {tag} → {in_track}")
+            if overall:
+                lines.append(f"{name}: {tag} → {overall} (major)")
+        send(Level.WARNING, f"{len(updates_available)} container update(s) available",
+             "\n".join(lines))
 
     print(f"\n{BOLD}{'─' * 60}")
     print(f"  {len(updates_available)} update(s) available")
