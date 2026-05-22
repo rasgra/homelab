@@ -94,6 +94,16 @@ unifi.{$BASE_DOMAIN} {
 }
 
 # =========================
+# Collabora Online (Nextcloud Office)
+# =========================
+
+collabora.{$BASE_DOMAIN} {
+	reverse_proxy collabora:9980 {
+		import proxy_headers
+	}
+}
+
+# =========================
 # Jitsi Meet
 # =========================
 
