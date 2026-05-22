@@ -45,7 +45,9 @@ UNSTABLE_RE = re.compile(
 
 # Images where a minor version bump is treated as a major (ecosystem-breaking) jump.
 # e.g. python:3.13 → 3.14 is as breaking as node:22 → 23.
-MINOR_IS_MAJOR = {"python", "node", "ruby", "php"}
+# Databases and reverse proxies: a major bump can change wire protocol, data
+# directory format, or config syntax — always review before applying.
+MINOR_IS_MAJOR = {"python", "node", "ruby", "php", "mariadb", "mysql", "redis", "caddy", "postgres", "postgresql"}
 
 # ─── File scanning ────────────────────────────────────────────────────────────
 

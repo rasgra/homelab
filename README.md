@@ -269,6 +269,23 @@ docker compose restart [service]
 docker compose build nextcloud && docker compose up -d nextcloud
 ```
 
+## Post-upgrade checklist
+
+Run these after bumping the Nextcloud image version:
+
+```bash
+# Add any indices introduced by the new version
+docker compose exec -u www-data nextcloud php occ db:add-missing-indices
+
+# Migrate mimetypes and run other post-upgrade repairs
+docker compose exec -u www-data nextcloud php occ maintenance:repair --include-expensive
+```
+
+**Database upgrades (MariaDB, Redis):** major version bumps change the on-disk
+format and are not backwards-compatible. Always dump before upgrading and verify
+the new version is within Nextcloud's supported range before applying.
+`scripts/update-images` flags these as major changes to prompt manual review.
+
 ## Maintenance
 
 ### Check disk health
