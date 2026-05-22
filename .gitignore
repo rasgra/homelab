@@ -3,3 +3,17 @@
 .env.secrets
 */.env
 */.env.secrets
+
+# Local deployment state
+.custom_projects
+compose.override.yml
+update-history.log
+
+# Untracked project directories
+ot_soc_portal/
+
+# Abandoned files
+nextcloud/entrypoint-wrapper.sh
+
+# Python cache
+__pycache__/
