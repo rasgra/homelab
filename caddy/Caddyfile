@@ -32,9 +32,12 @@
 
 nextcloud.{$BASE_DOMAIN} {
 	import security_headers
+	# OSM tile servers require a Referer header; override the global no-referrer policy.
+	header >Referrer-Policy "strict-origin"
 
 	reverse_proxy nextcloud:80 {
 		import proxy_headers
+		header_down -Referrer-Policy
 	}
 }
 
