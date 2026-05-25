@@ -1,0 +1,373 @@
+#!/usr/bin/env python3
+"""
+scripts/check-disks — Check disk health via S.M.A.R.T.
+
+Usage: sudo ./scripts/check-disks [OPTIONS]
+
+Options:
+  --quiet       Only print on issues; exit non-zero if any found (for cron)
+  --json        Output one JSON object per disk
+  --log FILE    Append timestamped result to FILE
+  -h, --help    Show this message
+
+Setup for periodic checks (add to root crontab with: sudo crontab -e):
+  0 6 * * * /home/USER/apa/homelab/scripts/check-disks --quiet --log /var/log/disk-health.log
+"""
+
+import json
+import os
+import sys
+import subprocess
+from datetime import datetime
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent.parent
+
+# ── Thresholds ─────────────────────────────────────────────────────────────────
+
+# ATA/SATA: (attribute_id, description, max_raw_ok)
+# raw value must be <= max_raw_ok; 0 means any non-zero value is a problem
+ATA_CRITICAL = {
+    5:   "Reallocated sectors",
+    196: "Reallocation events",
+    197: "Pending sectors",
+    198: "Uncorrectable errors",
+    187: "Reported uncorrectable",
+    181: "Program failures",
+    182: "Erase failures",
+    183: "Runtime bad blocks",
+}
+
+TEMP_WARN_C  = 65
+TEMP_CRIT_C  = 75
+SPARE_WARN_PCT = 20   # NVMe: warn when available spare < 20%
+USED_WARN_PCT  = 80   # NVMe: warn when percentage_used > 80%
+USED_CRIT_PCT  = 95
+
+# ── Colors ──────────────────────────────────────────────────────────────────────
+
+if sys.stdout.isatty():
+    RED  = "\033[0;31m"; YELLOW = "\033[1;33m"; GREEN = "\033[0;32m"
+    BOLD = "\033[1m";    CYAN   = "\033[0;36m"; NC    = "\033[0m"
+else:
+    RED = YELLOW = GREEN = BOLD = CYAN = NC = ""
+
+
+def color(text, c): return f"{c}{text}{NC}"
+def red(t):    return color(t, RED)
+def yellow(t): return color(t, YELLOW)
+def green(t):  return color(t, GREEN)
+def bold(t):   return color(t, BOLD)
+
+# ── Drive detection ─────────────────────────────────────────────────────────────
+
+def find_drives():
+    """Return list of (device_path, transport) for all physical disks."""
+    try:
+        out = subprocess.check_output(
+            ["lsblk", "-J", "-d", "-o", "NAME,TYPE,TRAN"],
+            stderr=subprocess.DEVNULL, text=True
+        )
+        data = json.loads(out)
+        drives = []
+        for dev in data.get("blockdevices", []):
+            if dev.get("type") == "disk" and dev.get("tran") in ("sata", "nvme", "sas"):
+                name = dev["name"]
+                path = f"/dev/{name}"
+                drives.append((path, dev.get("tran", "unknown")))
+        return drives
+    except Exception as e:
+        print(f"Error detecting drives: {e}", file=sys.stderr)
+        return []
+
+# ── SMART data ──────────────────────────────────────────────────────────────────
+
+def smartctl_json(device):
+    """Run smartctl -j -a and return parsed JSON, or None on error."""
+    try:
+        result = subprocess.run(
+            ["smartctl", "-j", "-a", device],
+            capture_output=True, text=True
+        )
+        return json.loads(result.stdout)
+    except Exception:
+        return None
+
+# ── Analysis ────────────────────────────────────────────────────────────────────
+
+def analyze_ata(data, device):
+    """Analyze ATA/SATA drive. Returns (issues, warnings, info) lists of strings."""
+    issues, warnings, info = [], [], []
+
+    # Overall health
+    passed = data.get("smart_status", {}).get("passed")
+    if passed is False:
+        issues.append("SMART overall health test: FAILED")
+    elif passed is True:
+        info.append("SMART overall health: PASSED")
+    else:
+        warnings.append("SMART overall health: unknown")
+
+    # Critical attributes
+    attrs = {a["id"]: a for a in data.get("ata_smart_attributes", {}).get("table", [])}
+    for attr_id, desc in ATA_CRITICAL.items():
+        if attr_id not in attrs:
+            continue
+        raw = attrs[attr_id].get("raw", {}).get("value", 0)
+        if raw > 0:
+            issues.append(f"{desc} (attr {attr_id}): {raw}")
+
+    # Temperature
+    temp = data.get("temperature", {}).get("current")
+    if temp is not None:
+        if temp >= TEMP_CRIT_C:
+            issues.append(f"Temperature: {temp}°C (critical ≥{TEMP_CRIT_C}°C)")
+        elif temp >= TEMP_WARN_C:
+            warnings.append(f"Temperature: {temp}°C (warn ≥{TEMP_WARN_C}°C)")
+        else:
+            info.append(f"Temperature: {temp}°C")
+
+    # Power-on hours
+    poh = data.get("power_on_time", {}).get("hours")
+    if poh:
+        years = poh / 8760
+        info.append(f"Power-on time: {poh:,} h ({years:.1f} years)")
+
+    # SSD remaining life — use the normalized value (universally starts at 100,
+    # decreases with wear) rather than raw (which is vendor-specific: Samsung 177
+    # raw = erase cycle count, not a percentage).
+    for attr_id in (177, 231, 232, 233, 202, 173):
+        if attr_id in attrs:
+            norm = attrs[attr_id].get("value")   # normalized, 0-100
+            name = attrs[attr_id].get("name", f"attr_{attr_id}")
+            if norm is not None and norm > 0:
+                if norm <= 10:
+                    issues.append(f"SSD life remaining ({name}): {norm}%")
+                elif norm <= 20:
+                    warnings.append(f"SSD life remaining ({name}): {norm}%")
+                else:
+                    info.append(f"SSD life remaining ({name}): {norm}%")
+            break
+
+    return issues, warnings, info
+
+
+def analyze_nvme(data, device):
+    """Analyze NVMe drive. Returns (issues, warnings, info) lists."""
+    issues, warnings, info = [], [], []
+
+    # Overall health
+    passed = data.get("smart_status", {}).get("passed")
+    if passed is False:
+        issues.append("SMART overall health test: FAILED")
+    elif passed is True:
+        info.append("SMART overall health: PASSED")
+
+    log = data.get("nvme_smart_health_information_log", {})
+
+    # Critical warning byte (bitmask: 0x00 = all good)
+    crit = log.get("critical_warning", 0)
+    if crit != 0:
+        flags = []
+        if crit & 0x01: flags.append("spare below threshold")
+        if crit & 0x02: flags.append("temperature exceeded")
+        if crit & 0x04: flags.append("NVM subsystem degraded")
+        if crit & 0x08: flags.append("read-only mode")
+        if crit & 0x10: flags.append("volatile memory backup failed")
+        issues.append(f"Critical warning: 0x{crit:02x} ({', '.join(flags)})")
+
+    # Available spare
+    spare = log.get("available_spare")
+    threshold = log.get("available_spare_threshold", 10)
+    if spare is not None:
+        if spare <= threshold:
+            issues.append(f"Available spare: {spare}% (≤ threshold {threshold}%)")
+        elif spare < SPARE_WARN_PCT:
+            warnings.append(f"Available spare: {spare}% (low, threshold {threshold}%)")
+        else:
+            info.append(f"Available spare: {spare}% (threshold {threshold}%)")
+
+    # Percentage used (wear)
+    used = log.get("percentage_used")
+    if used is not None:
+        if used >= USED_CRIT_PCT:
+            issues.append(f"Drive wear: {used}% used (critical ≥{USED_CRIT_PCT}%)")
+        elif used >= USED_WARN_PCT:
+            warnings.append(f"Drive wear: {used}% used (warn ≥{USED_WARN_PCT}%)")
+        else:
+            info.append(f"Drive wear: {used}% used")
+
+    # Media errors
+    media_errors = log.get("media_errors", 0)
+    if media_errors > 0:
+        issues.append(f"Media errors: {media_errors}")
+    else:
+        info.append("Media errors: 0")
+
+    # Temperature
+    temp = log.get("temperature")
+    if temp is not None:
+        if temp >= TEMP_CRIT_C:
+            issues.append(f"Temperature: {temp}°C (critical ≥{TEMP_CRIT_C}°C)")
+        elif temp >= TEMP_WARN_C:
+            warnings.append(f"Temperature: {temp}°C (warn ≥{TEMP_WARN_C}°C)")
+        else:
+            info.append(f"Temperature: {temp}°C")
+
+    # Power-on hours
+    poh = log.get("power_on_hours")
+    if poh:
+        years = poh / 8760
+        info.append(f"Power-on time: {poh:,} h ({years:.1f} years)")
+
+    return issues, warnings, info
+
+# ── Output ──────────────────────────────────────────────────────────────────────
+
+def overall_status(issues, warnings):
+    if issues:   return "CRITICAL"
+    if warnings: return "WARNING"
+    return "OK"
+
+def print_disk_result(device, model, tran, issues, warnings, info, quiet):
+    status = overall_status(issues, warnings)
+    if quiet and status == "OK":
+        return
+
+    status_str = {
+        "OK":       green(f"[  OK  ]"),
+        "WARNING":  yellow("[WARNING]"),
+        "CRITICAL": red(  "[CRITICAL]"),
+    }[status]
+
+    print(f"\n{bold(device)}  {CYAN}{model}{NC}  ({tran.upper()})")
+    print(f"  Status: {status_str}")
+
+    for msg in issues:
+        print(f"  {red('✗')} {msg}")
+    for msg in warnings:
+        print(f"  {yellow('!')} {msg}")
+    if not quiet:
+        for msg in info:
+            print(f"  {green('·')} {msg}")
+
+
+def emit_json(device, model, tran, issues, warnings, info):
+    print(json.dumps({
+        "device": device,
+        "model": model,
+        "transport": tran,
+        "status": overall_status(issues, warnings),
+        "issues": issues,
+        "warnings": warnings,
+        "info": info,
+        "timestamp": datetime.now().isoformat(),
+    }))
+
+
+def append_log(log_file, device, model, status, issues, warnings):
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    summary = f"{ts} | {device} ({model}) | {status}"
+    if issues:
+        summary += f" | ISSUES: {'; '.join(issues)}"
+    if warnings:
+        summary += f" | WARNINGS: {'; '.join(warnings)}"
+    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+    with open(log_file, "a") as fh:
+        fh.write(summary + "\n")
+
+# ── Main ────────────────────────────────────────────────────────────────────────
+
+def main():
+    if os.geteuid() != 0:
+        print("check-disks must be run as root (sudo ./scripts/check-disks)", file=sys.stderr)
+        sys.exit(1)
+
+    quiet = "--quiet" in sys.argv
+    as_json = "--json" in sys.argv
+    notify = "--notify" in sys.argv
+    log_file = None
+    if "--log" in sys.argv:
+        idx = sys.argv.index("--log")
+        if idx + 1 < len(sys.argv):
+            log_file = sys.argv[idx + 1]
+
+    if "-h" in sys.argv or "--help" in sys.argv:
+        print(__doc__)
+        sys.exit(0)
+
+    drives = find_drives()
+    if not drives:
+        print("No physical drives found.", file=sys.stderr)
+        sys.exit(1)
+
+    worst = "OK"
+
+    if not quiet and not as_json:
+        print(f"\n{bold('Disk health check')}  —  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'─' * 60}")
+
+    for device, tran in sorted(drives):
+        data = smartctl_json(device)
+        if not data:
+            if not quiet:
+                print(f"\n{red('✗')} {device}: could not read SMART data")
+            worst = "CRITICAL"
+            continue
+
+        model = (
+            data.get("model_name")
+            or data.get("model_family")
+            or "Unknown"
+        )
+
+        proto = data.get("device", {}).get("protocol", "").lower()
+        if "nvme" in proto or tran == "nvme":
+            issues, warnings, info = analyze_nvme(data, device)
+        else:
+            issues, warnings, info = analyze_ata(data, device)
+
+        status = overall_status(issues, warnings)
+        if status == "CRITICAL" or (status == "WARNING" and worst == "OK"):
+            worst = status
+
+        if as_json:
+            emit_json(device, model, tran, issues, warnings, info)
+        else:
+            print_disk_result(device, model, tran, issues, warnings, info, quiet)
+
+        if log_file:
+            append_log(log_file, device, model, status, issues, warnings)
+
+    if not quiet and not as_json:
+        print(f"\n{'─' * 60}")
+        overall = {
+            "OK":       green("All disks healthy"),
+            "WARNING":  yellow("One or more disks need attention"),
+            "CRITICAL": red("One or more disks are in critical condition"),
+        }[worst]
+        print(f"Overall: {overall}\n")
+
+    if notify and worst != "OK":
+        sys.path.insert(0, str(Path(__file__).parent))
+        from notify import send, Level
+        level = Level.CRITICAL if worst == "CRITICAL" else Level.WARNING
+        issue_lines = []
+        for device, tran in sorted(drives):
+            data = smartctl_json(device)
+            if not data:
+                continue
+            model = data.get("model_name") or data.get("model_family") or "Unknown"
+            proto = data.get("device", {}).get("protocol", "").lower()
+            iss, wrn, _ = (analyze_nvme if "nvme" in proto or tran == "nvme"
+                           else analyze_ata)(data, device)
+            for msg in iss + wrn:
+                issue_lines.append(f"{device} ({model}): {msg}")
+        if issue_lines:
+            send(level, "Disk Health Alert", "\n".join(issue_lines))
+
+    sys.exit(0 if worst == "OK" else 1)
+
+
+if __name__ == "__main__":
+    main()

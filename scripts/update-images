@@ -1,0 +1,454 @@
+#!/usr/bin/env python3
+"""
+scripts/update-images — Check for newer Docker image versions in compose files.
+
+Usage: ./scripts/update-images [--check-only] [--notify]
+  --check-only   Show available updates without applying anything
+  --notify       Send Telegram notification if updates are found
+"""
+
+import json
+import os
+import re
+import sys
+import urllib.request
+import urllib.error
+from datetime import datetime
+from pathlib import Path
+
+HOMELAB_DIR = Path(__file__).resolve().parent.parent
+LOG_FILE = HOMELAB_DIR / "update-history.log"
+
+# Images to skip — custom builds, templates, or unversioned
+SKIP_IMAGE_NAMES = {"nextcloud-custom", "my-image"}
+
+# Release notes URLs per image name
+RELEASE_NOTES = {
+    "jitsi/web":            "https://github.com/jitsi/jitsi-meet/releases",
+    "jitsi/prosody":        "https://github.com/jitsi/jitsi-meet/releases",
+    "jitsi/jicofo":         "https://github.com/jitsi/jitsi-meet/releases",
+    "jitsi/jvb":            "https://github.com/jitsi/jitsi-meet/releases",
+    "jacobalberty/unifi":   "https://github.com/jacobalberty/unifi-docker/releases",
+    "mysql":                "https://dev.mysql.com/doc/relnotes/mysql/8.4/en/",
+    "mariadb":              "https://mariadb.com/kb/en/mariadb-release-notes/",
+    "nextcloud":            "https://nextcloud.com/changelog/",
+    "redis":                "https://github.com/redis/redis/releases",
+    "caddy":                "https://github.com/caddyserver/caddy/releases",
+    "nico640/docker-unms":  "https://github.com/Nico640/docker-unms/releases",
+}
+
+# Unstable tag patterns to ignore
+UNSTABLE_RE = re.compile(
+    r"(alpha|beta|rc\d*|nightly|develop|snapshot|test|edge|canary)",
+    re.IGNORECASE,
+)
+
+# Images where a minor version bump is treated as a major (ecosystem-breaking) jump.
+# e.g. python:3.13 → 3.14 is as breaking as node:22 → 23.
+# Databases and reverse proxies: a major bump can change wire protocol, data
+# directory format, or config syntax — always review before applying.
+MINOR_IS_MAJOR = {"python", "node", "ruby", "php", "mariadb", "mysql", "redis", "caddy", "postgres", "postgresql"}
+
+# ─── File scanning ────────────────────────────────────────────────────────────
+
+def find_source_files():
+    """Return (compose_files, dockerfile_paths)."""
+    compose_patterns = {"compose.yml", "compose.yaml", "compose_homelab.yml"}
+    compose_files, dockerfiles = [], []
+    for root, dirs, files in os.walk(HOMELAB_DIR):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "node_modules"]
+        for f in files:
+            path = Path(root) / f
+            if f in compose_patterns:
+                compose_files.append(path)
+            elif f == "Dockerfile":
+                dockerfiles.append(path)
+    return compose_files, dockerfiles
+
+
+def extract_images(compose_file):
+    """Return list of (image_ref, line_number) from a compose file."""
+    results = []
+    with open(compose_file) as fh:
+        for i, line in enumerate(fh, 1):
+            m = re.match(r"^\s+image:\s+(.+)", line)
+            if m:
+                ref = m.group(1).strip().strip('"').strip("'")
+                results.append((ref, i))
+    return results
+
+
+def find_service_for_dockerfile(dockerfile, compose_files):
+    """Return the Docker Compose service name whose build context contains this Dockerfile."""
+    import yaml  # only used here; stdlib-only fallback below
+    dockerfile_dir = dockerfile.parent.resolve()
+    for cf in compose_files:
+        try:
+            with open(cf) as fh:
+                doc = yaml.safe_load(fh)
+        except Exception:
+            continue
+        services = (doc or {}).get("services", {}) or {}
+        for svc_name, svc in services.items():
+            if not isinstance(svc, dict):
+                continue
+            build = svc.get("build")
+            if not build:
+                continue
+            context = build.get("context") if isinstance(build, dict) else build
+            if not context:
+                continue
+            context_path = (cf.parent / context).resolve()
+            if context_path == dockerfile_dir:
+                return svc_name
+    return None
+
+
+def extract_from_images(dockerfile):
+    """Return list of (image_ref, line_number) from FROM lines in a Dockerfile.
+    Skips scratch, ARG-based refs, and stage aliases used as base images."""
+    results = []
+    stage_aliases = set()
+    with open(dockerfile) as fh:
+        for i, line in enumerate(fh, 1):
+            m = re.match(r"^\s*FROM\s+(\S+)(?:\s+AS\s+\S+)?", line, re.IGNORECASE)
+            if not m:
+                continue
+            ref = m.group(1)
+            if ref.lower() == "scratch" or ref.startswith("$"):
+                continue
+            if ref in stage_aliases:  # referencing a prior build stage
+                continue
+            # Record stage alias so subsequent FROM can skip it
+            alias_m = re.match(r"^\s*FROM\s+\S+\s+AS\s+(\S+)", line, re.IGNORECASE)
+            if alias_m:
+                stage_aliases.add(alias_m.group(1))
+            results.append((ref, i))
+    return results
+
+
+def parse_image_ref(ref):
+    """
+    Split image ref into (name, tag).
+    Returns (None, None) for refs we can't handle (digest, no tag).
+    """
+    if "@sha256:" in ref:
+        return None, None  # digest ref — skip
+
+    if ":" in ref:
+        name, tag = ref.rsplit(":", 1)
+    else:
+        name, tag = ref, "latest"
+
+    if tag == "latest":
+        return None, None  # unversioned — skip
+
+    image_name = name.split("/")[-1] if "/" not in name else name
+    # Skip local/custom image names
+    base_name = name.split("/")[-1]
+    if base_name in SKIP_IMAGE_NAMES:
+        return None, None
+
+    return name, tag
+
+# ─── Docker Hub API ───────────────────────────────────────────────────────────
+
+def dockerhub_tags(image_name, pages=3):
+    """Fetch up to `pages` pages of tags from Docker Hub, newest first."""
+    if "/" in image_name:
+        url_base = f"https://hub.docker.com/v2/repositories/{image_name}/tags/"
+    else:
+        url_base = f"https://hub.docker.com/v2/repositories/library/{image_name}/tags/"
+
+    tags = []
+    url = url_base + "?page_size=100&ordering=last_updated"
+    for _ in range(pages):
+        if not url:
+            break
+        try:
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "homelab-updater/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+                tags.extend(t["name"] for t in data.get("results", []))
+                url = data.get("next")
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                print(f"  ⚠  Docker Hub rate limit hit for {image_name}")
+            return tags
+        except Exception:
+            return tags
+    return tags
+
+# ─── Version comparison ───────────────────────────────────────────────────────
+
+def parse_jitsi(tag):
+    m = re.match(r"^stable-(\d+)$", tag)
+    return int(m.group(1)) if m else None
+
+
+def parse_semver(tag):
+    """
+    Parse tags like v8.6, 10.11, 7-alpine, 8.4.1, v2.9.1 into
+    (version_tuple, variant) e.g. ((8, 6), '') or ((7,), 'alpine').
+    """
+    t = tag.lstrip("v")
+    variant = ""
+    if "-" in t:
+        ver_part, variant = t.split("-", 1)
+    else:
+        ver_part = t
+    parts = ver_part.split(".")
+    try:
+        return tuple(int(p) for p in parts), variant
+    except ValueError:
+        return None, None
+
+
+def find_newer_jitsi(current_tag, all_tags):
+    current_num = parse_jitsi(current_tag)
+    if current_num is None:
+        return None
+    candidates = []
+    for tag in all_tags:
+        if UNSTABLE_RE.search(tag):
+            continue
+        num = parse_jitsi(tag)
+        if num and num > current_num:
+            candidates.append((num, tag))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda x: x[0])[1]
+
+
+def find_newer_semver(current_tag, all_tags, same_major=False, same_minor=False):
+    current_ver, current_variant = parse_semver(current_tag)
+    if current_ver is None:
+        return None
+
+    candidates = []
+    for tag in all_tags:
+        if UNSTABLE_RE.search(tag):
+            continue
+        ver, variant = parse_semver(tag)
+        if ver is None:
+            continue
+        if variant != current_variant:
+            continue
+        if same_minor:
+            # Must match major.minor (e.g. 3.13.x only)
+            if len(ver) < 2 or len(current_ver) < 2:
+                continue
+            if ver[:2] != current_ver[:2]:
+                continue
+        elif same_major and ver[0] != current_ver[0]:
+            continue
+        if ver > current_ver:
+            candidates.append((ver, tag))
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda x: x[0])[1]
+
+
+def find_update(image_name, current_tag, all_tags):
+    """
+    Returns (latest_in_track, latest_overall) — either may be None if up-to-date.
+    latest_in_track: newer version in same major/track
+    latest_overall:  newer version in any track (if different from in_track)
+    """
+    if re.match(r"^stable-\d+$", current_tag):
+        latest = find_newer_jitsi(current_tag, all_tags)
+        return latest, None
+
+    # For runtimes like python/node, a minor bump is ecosystem-breaking —
+    # treat same_major as same_major.minor so 3.13→3.14 shows as "Major".
+    base_name = image_name.split("/")[-1]
+    if base_name in MINOR_IS_MAJOR:
+        in_track = find_newer_semver(current_tag, all_tags, same_minor=True)
+        overall = find_newer_semver(current_tag, all_tags, same_major=False)
+    else:
+        in_track = find_newer_semver(current_tag, all_tags, same_major=True)
+        overall = find_newer_semver(current_tag, all_tags, same_major=False)
+
+    if overall == in_track:
+        overall = None
+    return in_track, overall
+
+# ─── Display ──────────────────────────────────────────────────────────────────
+
+BOLD  = "\033[1m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+CYAN  = "\033[36m"
+RESET = "\033[0m"
+
+
+def print_update_row(image, current, in_track, overall, notes_url):
+    print(f"\n  {BOLD}{image}{RESET}")
+    print(f"    Current : {current}")
+    if in_track:
+        print(f"    Update  : {GREEN}{in_track}{RESET}")
+    if overall:
+        print(f"    Major   : {YELLOW}{overall}{RESET}  ← new major version available")
+    if notes_url:
+        print(f"    Notes   : {CYAN}{notes_url}{RESET}")
+
+# ─── Apply update ─────────────────────────────────────────────────────────────
+
+def apply_update(file_path, old_ref, new_ref):
+    text = file_path.read_text()
+    if old_ref not in text:
+        print(f"  ✗ Could not find '{old_ref}' in {file_path.name}")
+        return False
+    file_path.write_text(text.replace(old_ref, new_ref))
+    return True
+
+
+def log_update(file_path, old_ref, new_ref):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    rel_path = file_path.relative_to(HOMELAB_DIR)
+    entry = f"{timestamp} | {old_ref} -> {new_ref} | {rel_path}\n"
+    with open(LOG_FILE, "a") as fh:
+        fh.write(entry)
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
+
+def main():
+    check_only = "--check-only" in sys.argv
+    notify     = "--notify"     in sys.argv
+
+    compose_files, dockerfiles = find_source_files()
+
+    # image_ref -> list of (file_path, file_type)  where file_type in {"compose","dockerfile"}
+    image_map = {}
+
+    for cf in compose_files:
+        for ref, _ in extract_images(cf):
+            name, tag = parse_image_ref(ref)
+            if name is None:
+                continue
+            image_map.setdefault(ref, []).append((cf, "compose"))
+
+    for df in dockerfiles:
+        for ref, _ in extract_from_images(df):
+            name, tag = parse_image_ref(ref)
+            if name is None:
+                continue
+            image_map.setdefault(ref, []).append((df, "dockerfile"))
+
+    if not image_map:
+        print("No versioned images found.")
+        sys.exit(0)
+
+    print(f"\n{BOLD}Checking {len(image_map)} image(s) for updates...{RESET}\n")
+
+    updates_available = []  # (ref, name, tag, in_track, overall, file_entries)
+
+    for ref, file_entries in sorted(image_map.items()):
+        name, tag = parse_image_ref(ref)
+        print(f"  Checking {name}:{tag} ...", end=" ", flush=True)
+        all_tags = dockerhub_tags(name)
+        if not all_tags:
+            print("(could not fetch tags)")
+            continue
+        in_track, overall = find_update(name, tag, all_tags)
+        if in_track or overall:
+            print("update available")
+            updates_available.append((ref, name, tag, in_track, overall, file_entries))
+        else:
+            print("up to date")
+
+    if not updates_available:
+        print(f"\n{GREEN}All images are up to date.{RESET}\n")
+        sys.exit(0)
+
+    if notify:
+        sys.path.insert(0, str(HOMELAB_DIR / "scripts"))
+        from notify import send, Level
+        lines = []
+        for ref, name, tag, in_track, overall, _ in updates_available:
+            if in_track:
+                lines.append(f"{name}: {tag} → {in_track}")
+            if overall:
+                lines.append(f"{name}: {tag} → {overall} (major)")
+        send(Level.WARNING, f"{len(updates_available)} container update(s) available",
+             "\n".join(lines))
+
+    print(f"\n{BOLD}{'─' * 60}")
+    print(f"  {len(updates_available)} update(s) available")
+    print(f"{'─' * 60}{RESET}")
+
+    for ref, name, tag, in_track, overall, file_entries in updates_available:
+        notes_url = RELEASE_NOTES.get(name)
+        print_update_row(name, tag, in_track, overall, notes_url)
+        for fp, ftype in file_entries:
+            label = "Dockerfile" if ftype == "dockerfile" else "compose"
+            print(f"    File    : {fp.relative_to(HOMELAB_DIR)}  [{label}]")
+
+    if check_only:
+        print()
+        sys.exit(0)
+
+    print(f"\n{BOLD}{'─' * 60}{RESET}\n")
+
+    applied = []
+    needs_rebuild = []  # list of (dockerfile_path, service_name_or_None)
+
+    for ref, name, tag, in_track, overall, file_entries in updates_available:
+        for new_tag, kind in [(in_track, "update"), (overall, "major update")]:
+            if not new_tag:
+                continue
+            new_ref = f"{name}:{new_tag}"
+            notes_url = RELEASE_NOTES.get(name)
+            print(f"{BOLD}{name}{RESET}: {tag} → {GREEN}{new_tag}{RESET} ({kind})")
+            if notes_url:
+                print(f"  Release notes: {CYAN}{notes_url}{RESET}")
+
+            try:
+                answer = input("  Apply this update? [y/N] ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\nAborted.")
+                sys.exit(1)
+
+            if answer == "y":
+                success = True
+                for fp, ftype in file_entries:
+                    if apply_update(fp, ref, new_ref):
+                        log_update(fp, ref, new_ref)
+                        print(f"  ✓ Updated {fp.relative_to(HOMELAB_DIR)}")
+                        if ftype == "dockerfile":
+                            svc = find_service_for_dockerfile(fp, compose_files)
+                            needs_rebuild.append((fp, svc))
+                    else:
+                        success = False
+                if success:
+                    applied.append((ref, new_ref, file_entries))
+                    ref = new_ref
+                    tag = new_tag
+            else:
+                print("  Skipped.")
+            print()
+
+    if applied:
+        print(f"{GREEN}{BOLD}Done. {len(applied)} update(s) applied.{RESET}")
+        print(f"Changes logged to: {LOG_FILE.relative_to(HOMELAB_DIR)}")
+        print()
+        if needs_rebuild:
+            print(f"{YELLOW}Dockerfiles updated — rebuild required before deploying:{RESET}")
+            for fp, svc in needs_rebuild:
+                rel = fp.relative_to(HOMELAB_DIR)
+                if svc:
+                    print(f"  docker compose build {svc}   # {rel}")
+                else:
+                    print(f"  docker compose build <service>   # {rel}")
+            print()
+        print("To deploy:  docker compose up -d")
+        print("To revert:  git checkout -- <file>  &&  docker compose up -d")
+    else:
+        print("No updates applied.")
+
+
+if __name__ == "__main__":
+    main()

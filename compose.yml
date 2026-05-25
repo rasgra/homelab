@@ -28,5 +28,3 @@ include:
   - ./uisp/compose.yml
   - ./jitsi-deploy/compose.yml
   - ./unifi/compose.yml
-
-

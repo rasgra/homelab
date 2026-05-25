@@ -1,0 +1,282 @@
+#!/bin/bash
+# scripts/check-certs — Check TLS certificate expiry for all Caddy-managed domains.
+#
+# Usage: ./scripts/check-certs [OPTIONS] [DOMAIN...]
+#
+# Options:
+#   --warn-days N    Warn if a cert expires within N days (default: 30)
+#   --crit-days N    Critical if a cert expires within N days (default: 7)
+#   --quiet          Only print warnings and errors; exit non-zero if any found
+#   --json           Output results as JSON (one object per line)
+#   --nagios         Nagios/check_mk-compatible exit codes (0/1/2/3)
+#   --data-dir DIR   Override DATA_DIR (default: read from .env)
+#   -h, --help       Show this message
+#
+# Exit codes (default): 0 = all ok, 1 = one or more warnings or criticals
+# Exit codes (--nagios): 0 = OK, 1 = WARNING, 2 = CRITICAL, 3 = UNKNOWN
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# ── Defaults ──────────────────────────────────────────────────────────────────
+WARN_DAYS=30
+CRIT_DAYS=7
+QUIET=false
+JSON=false
+NAGIOS=false
+NOTIFY=false
+DATA_DIR_ARG=""
+EXTRA_DOMAINS=()
+
+# ── Colors ────────────────────────────────────────────────────────────────────
+if [[ -t 1 ]]; then
+    RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
+    BOLD='\033[1m';   CYAN='\033[0;36m';   NC='\033[0m'
+else
+    RED=''; YELLOW=''; GREEN=''; BOLD=''; CYAN=''; NC=''
+fi
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+usage() { grep '^#' "$0" | grep -v '^#!/' | sed 's/^# \{0,1\}//'; }
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --warn-days) WARN_DAYS="$2";    shift 2 ;;
+        --crit-days) CRIT_DAYS="$2";    shift 2 ;;
+        --quiet)     QUIET=true;        shift ;;
+        --json)      JSON=true;         shift ;;
+        --nagios)    NAGIOS=true;       shift ;;
+        --notify)    NOTIFY=true;       shift ;;
+        --data-dir)  DATA_DIR_ARG="$2"; shift 2 ;;
+        -h|--help)   usage; exit 0 ;;
+        -*)          echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+        *)           EXTRA_DOMAINS+=("$1"); shift ;;
+    esac
+done
+
+# ── Resolve DATA_DIR ──────────────────────────────────────────────────────────
+if [[ -n "$DATA_DIR_ARG" ]]; then
+    DATA_DIR="$DATA_DIR_ARG"
+elif [[ -f "$SCRIPT_DIR/.env" ]]; then
+    DATA_DIR=$(grep "^DATA_DIR=" "$SCRIPT_DIR/.env" \
+        | cut -d= -f2- | sed 's/[[:space:]]*#.*//' | tr -d '"' | tr -d "'")
+fi
+DATA_DIR="${DATA_DIR:-/opt/stack}"
+
+# ── Domain collection ─────────────────────────────────────────────────────────
+# Extract public (non-internal-TLS) site-block hostnames from a Caddyfile.
+extract_domains() {
+    local file="$1"
+    [[ -f "$file" ]] || return
+    awk '
+        /^\}/ { if (domain && !internal) print domain; domain=""; internal=0; next }
+        domain && /tls[[:space:]]+internal/ { internal=1; next }
+        domain { next }
+        /^\(/ { next }
+        /^[a-zA-Z*]/ && /[[:space:]]\{[[:space:]]*$/ {
+            domain=$0; sub(/[[:space:]]+\{[[:space:]]*$/, "", domain); internal=0
+        }
+    ' "$file"
+}
+
+collect_domains() {
+    local base_domain=""
+    [[ -f "$SCRIPT_DIR/.env" ]] && \
+        base_domain=$(grep "^BASE_DOMAIN=" "$SCRIPT_DIR/.env" \
+            | cut -d= -f2- | sed 's/[[:space:]]*#.*//' | tr -d '"' | tr -d "'")
+
+    {
+        extract_domains "$SCRIPT_DIR/caddy/Caddyfile"
+
+        # Custom project caddy snippets
+        if [[ -f "$SCRIPT_DIR/.custom_projects" ]]; then
+            while IFS= read -r proj || [[ -n "$proj" ]]; do
+                [[ -z "$proj" ]] && continue
+                local rel="${proj#./}"
+                local manifest="$SCRIPT_DIR/$rel/homelab.yml"
+                [[ -f "$manifest" ]] || continue
+                local snippet
+                snippet=$(awk -v k="caddy_snippet" \
+                    'index($0, k ":") == 1 { sub(/^[^:]+:[[:space:]]*/, ""); print; exit }' \
+                    "$manifest")
+                [[ -z "$snippet" ]] && continue
+                extract_domains "$SCRIPT_DIR/$rel/$snippet"
+            done < "$SCRIPT_DIR/.custom_projects"
+        fi
+
+        for d in "${EXTRA_DOMAINS[@]+"${EXTRA_DOMAINS[@]}"}"; do echo "$d"; done
+    } \
+    | awk -v base="$base_domain" '{ gsub(/[{][$]BASE_DOMAIN[}]/, base); print }' \
+    | grep -v '^\*\.' \
+    | grep -v "^$" \
+    | sort -u
+}
+
+# ── Certificate check ─────────────────────────────────────────────────────────
+# Output is pipe-delimited key=value to avoid spaces breaking word-splitting.
+# Dates are normalised to YYYY-MM-DD.
+check_domain() {
+    local domain="$1"
+
+    local raw
+    raw=$(echo | timeout 5 openssl s_client \
+        -connect "${domain}:443" \
+        -servername "$domain" \
+        2>/dev/null) || true
+
+    local cert
+    cert=$(echo "$raw" | openssl x509 -noout -dates -issuer 2>/dev/null) || true
+
+    if [[ -z "$cert" ]]; then
+        echo "status=error|domain=$domain|message=connection_failed"
+        return
+    fi
+
+    local not_before not_after issuer
+    not_before=$(echo "$cert" | awk -F= '/notBefore/{print $2}')
+    not_after=$(echo  "$cert" | awk -F= '/notAfter/{print $2}')
+    issuer=$(echo     "$cert" | awk '/issuer=/{sub(/^[^=]+=/, ""); print}' | tr -s ' ' | sed 's/^ //')
+
+    # Compact ISO dates for display
+    local exp_fmt iss_fmt
+    exp_fmt=$(date -d "$not_after"  "+%Y-%m-%d" 2>/dev/null || echo "$not_after")
+    iss_fmt=$(date -d "$not_before" "+%Y-%m-%d" 2>/dev/null || echo "$not_before")
+
+    local expiry_epoch now_epoch days_left
+    expiry_epoch=$(date -d "$not_after" +%s 2>/dev/null || echo 0)
+    now_epoch=$(date +%s)
+    days_left=$(( (expiry_epoch - now_epoch) / 86400 ))
+
+    local status="ok"
+    [[ "$days_left" -le "$WARN_DAYS" ]] && status="warn"
+    [[ "$days_left" -le "$CRIT_DAYS" ]] && status="crit"
+    [[ "$days_left" -lt 0 ]]           && status="expired"
+
+    echo "status=$status|domain=$domain|days_left=$days_left|expires=$exp_fmt|issued=$iss_fmt|issuer=$issuer"
+}
+
+# ── Output formatters ─────────────────────────────────────────────────────────
+status_rank() {
+    case "$1" in ok) echo 0;; warn) echo 1;; crit|expired) echo 2;; *) echo 3;; esac
+}
+
+status_label() {
+    case "$1" in
+        ok)      echo "OK"       ;;
+        warn)    echo "WARNING"  ;;
+        crit)    echo "CRITICAL" ;;
+        expired) echo "EXPIRED"  ;;
+        *)       echo "ERROR"    ;;
+    esac
+}
+
+status_color() {
+    case "$1" in
+        ok)      printf '%s' "$GREEN"  ;;
+        warn)    printf '%s' "$YELLOW" ;;
+        *)       printf '%s' "$RED"    ;;
+    esac
+}
+
+parse_result() {
+    # Parse pipe-delimited key=value string into named variables
+    local result="$1"
+    status=""; domain=""; days_left=""; expires=""; issued=""; issuer=""; message=""
+    local IFS='|'
+    for kv in $result; do
+        local k="${kv%%=*}" v="${kv#*=}"
+        case "$k" in
+            status)    status="$v"    ;;
+            domain)    domain="$v"    ;;
+            days_left) days_left="$v" ;;
+            expires)   expires="$v"   ;;
+            issued)    issued="$v"    ;;
+            issuer)    issuer="$v"    ;;
+            message)   message="$v"   ;;
+        esac
+    done
+}
+
+print_text_row() {
+    local result="$1"
+    local status domain days_left expires issued issuer message
+    parse_result "$result"
+
+    [[ "$QUIET" == true && "$status" == "ok" ]] && return
+
+    local color; color=$(status_color "$status")
+    local label; label=$(status_label "$status")
+
+    if [[ "$status" == "error" ]]; then
+        printf "${color}${BOLD}[%-8s]${NC} %-35s  %s\n" "$label" "$domain" "${message:-connection failed}"
+        return
+    fi
+    printf "${color}${BOLD}[%-8s]${NC} %-35s  expires %-12s  (%s days)\n" \
+        "$label" "$domain" "$expires" "$days_left"
+}
+
+print_json_row() {
+    local result="$1"
+    local status domain days_left expires issued issuer message
+    parse_result "$result"
+    printf '{"domain":"%s","status":"%s","days_left":%s,"expires":"%s","issued":"%s","issuer":"%s"}\n' \
+        "$domain" "$status" "${days_left:-null}" "$expires" "$issued" "$issuer"
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+domains=$(collect_domains)
+
+if [[ -z "$domains" ]]; then
+    echo "No domains found. Check $SCRIPT_DIR/caddy/Caddyfile or pass domains as arguments." >&2
+    exit 3
+fi
+
+worst_status="ok"
+
+if [[ "$JSON" != true && "$QUIET" != true ]]; then
+    printf "\n${BOLD}%-10s %-35s  %s${NC}\n" "Status" "Domain" "Details"
+    printf '%0.s─' {1..72}; echo
+fi
+
+while IFS= read -r domain; do
+    [[ -z "$domain" ]] && continue
+    result=$(check_domain "$domain")
+    local_status="${result%%|*}"; local_status="${local_status#status=}"
+
+    if [[ $(status_rank "$local_status") -gt $(status_rank "$worst_status") ]]; then
+        worst_status="$local_status"
+    fi
+
+    if [[ "$JSON" == true ]]; then
+        print_json_row "$result"
+    else
+        print_text_row "$result"
+    fi
+done <<< "$domains"
+
+if [[ "$JSON" != true && "$QUIET" != true ]]; then
+    printf '%0.s─' {1..72}; echo
+    echo
+fi
+
+if [[ "$NOTIFY" == true && "$worst_status" != "ok" ]]; then
+    msg=""
+    while IFS= read -r domain; do
+        [[ -z "$domain" ]] && continue
+        result=$(check_domain "$domain")
+        local_status="${result%%|*}"; local_status="${local_status#status=}"
+        [[ "$local_status" == "ok" ]] && continue
+        parse_result "$result"
+        msg+="${domain}: expires ${expires} (${days_left} days)"$'\n'
+    done <<< "$domains"
+    level="warning"; [[ "$worst_status" == "crit" || "$worst_status" == "expired" ]] && level="critical"
+    python3 "$SCRIPT_DIR/scripts/notify" --level "$level" \
+        --title "Certificate Alert" --message "$msg" 2>/dev/null || true
+fi
+
+if [[ "$NAGIOS" == true ]]; then
+    exit "$(status_rank "$worst_status")"
+else
+    [[ "$worst_status" != "ok" ]] && exit 1 || exit 0
+fi

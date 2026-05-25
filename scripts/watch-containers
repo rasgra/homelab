@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""
+scripts/watch-containers — Alert when containers are unhealthy or restart-looping.
+
+Usage: ./scripts/watch-containers [--notify] [--quiet]
+
+Sends a Telegram alert when a container becomes unhealthy or restarts > 3 times.
+Sends a recovery notice when it comes back healthy.
+State is stored in /tmp/homelab-container-state.json to avoid repeat alerts.
+
+Options:
+  --notify   Send Telegram notification on issues
+  --quiet    Suppress console output
+  -h         Show this message
+"""
+
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
+SCRIPT_DIR  = Path(__file__).resolve().parent
+STATE_FILE  = Path("/tmp/homelab-container-state.json")
+RESTART_THRESHOLD = 3   # alert if restart count exceeds this
+
+
+def get_container_states():
+    """Return dict of container_name -> {status, health, restarts}."""
+    try:
+        out = subprocess.check_output(
+            ["docker", "ps", "-a",
+             "--format", '{"name":"{{.Names}}","status":"{{.Status}}",'
+                         '"health":"{{.Status}}","state":"{{.State}}"}'],
+            text=True, stderr=subprocess.DEVNULL
+        )
+    except Exception:
+        return {}
+
+    # Use inspect for richer data
+    try:
+        inspect_out = subprocess.check_output(
+            ["docker", "ps", "-a", "--format", "{{.Names}}"],
+            text=True, stderr=subprocess.DEVNULL
+        ).strip().splitlines()
+    except Exception:
+        return {}
+
+    containers = {}
+    for name in inspect_out:
+        if not name:
+            continue
+        try:
+            raw = subprocess.check_output(
+                ["docker", "inspect", "--format",
+                 '{"state":"{{.State.Status}}",'
+                 '"health":"{{if .State.Health}}{{.State.Health.Status}}{{end}}",'
+                 '"restarts":{{.RestartCount}}}',
+                 name],
+                text=True, stderr=subprocess.DEVNULL
+            ).strip()
+            data = json.loads(raw)
+            containers[name] = data
+        except Exception:
+            continue
+    return containers
+
+
+def load_state():
+    try:
+        return json.loads(STATE_FILE.read_text())
+    except Exception:
+        return {"alerted": []}
+
+
+def save_state(state):
+    STATE_FILE.write_text(json.dumps(state))
+
+
+def main():
+    notify = "--notify" in sys.argv
+    quiet  = "--quiet"  in sys.argv
+
+    if "-h" in sys.argv or "--help" in sys.argv:
+        print(__doc__); sys.exit(0)
+
+    containers = get_container_states()
+    if not containers:
+        if not quiet:
+            print("No containers found or Docker not accessible.")
+        sys.exit(0)
+
+    state = load_state()
+    previously_alerted = set(state.get("alerted", []))
+    now_alerting = set()
+    new_alerts  = []
+    recoveries  = []
+
+    for name, info in containers.items():
+        s = info.get("state", "")
+        h = info.get("health", "")
+        r = info.get("restarts", 0)
+
+        problem = None
+        if s == "restarting":
+            problem = f"restarting (loop)"
+        elif h == "unhealthy":
+            problem = f"unhealthy"
+        elif s == "exited" and r > RESTART_THRESHOLD:
+            problem = f"exited after {r} restarts"
+
+        if problem:
+            now_alerting.add(name)
+            if name not in previously_alerted:
+                new_alerts.append(f"{name}: {problem}")
+                if not quiet:
+                    print(f"  ALERT  {name}: {problem}")
+        elif name in previously_alerted:
+            recoveries.append(name)
+            if not quiet:
+                print(f"  OK     {name}: recovered")
+
+    updated_alerted = (previously_alerted | now_alerting) - set(recoveries)
+    save_state({"alerted": list(updated_alerted), "updated": datetime.now().isoformat()})
+
+    if notify:
+        sys.path.insert(0, str(SCRIPT_DIR))
+        from notify import send, Level
+
+        if new_alerts:
+            send(Level.CRITICAL, "Container Alert",
+                 "\n".join(new_alerts))
+
+        if recoveries:
+            send(Level.OK, "Container Recovered",
+                 "\n".join(f"{n}: back to healthy" for n in recoveries))
+
+    sys.exit(1 if new_alerts else 0)
+
+
+if __name__ == "__main__":
+    main()

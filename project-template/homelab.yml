@@ -1,0 +1,5 @@
+name: my-project           # unique identifier, used as the Caddy snippet filename
+subdomain: my-project      # → my-project.<BASE_DOMAIN>
+backend_network: my-project-backend   # Docker network shared between Caddy and your services
+compose: compose.yml       # path to the project's compose file (relative to this directory)
+caddy_snippet: caddy.caddy # path to the Caddy site block (relative to this directory)

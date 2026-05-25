@@ -20,9 +20,10 @@
 }
 
 (proxy_headers) {
-	header_up X-Forwarded-Proto {scheme}
+	header_up Host {host}
+	header_up X-Real-IP {remote_host}
 	header_up X-Forwarded-Host {host}
-	header_up X-Forwarded-For {remote}
+	header_up X-Forwarded-Port {server_port}
 }
 
 # =========================
@@ -31,9 +32,12 @@
 
 nextcloud.{$BASE_DOMAIN} {
 	import security_headers
+	# OSM tile servers require a Referer header; override the global no-referrer policy.
+	header >Referrer-Policy "strict-origin"
 
 	reverse_proxy nextcloud:80 {
 		import proxy_headers
+		header_down -Referrer-Policy
 	}
 }
 
@@ -93,10 +97,20 @@ unifi.{$BASE_DOMAIN} {
 }
 
 # =========================
+# Collabora Online (Nextcloud Office)
+# =========================
+
+collabora.{$BASE_DOMAIN} {
+	reverse_proxy collabora:9980 {
+		import proxy_headers
+	}
+}
+
+# =========================
 # Jitsi Meet
 # =========================
 
-adm.meet.{$BASE_DOMAIN} {
+meet.{$BASE_DOMAIN} {
 	reverse_proxy web:80 {
 		header_up Host {host}
 		header_up X-Forwarded-Proto https
@@ -104,10 +118,8 @@ adm.meet.{$BASE_DOMAIN} {
 	}
 }
 
-meet.{$BASE_DOMAIN} {
-	reverse_proxy web-public:80 {
-		header_up Host {host}
-		header_up X-Forwarded-Proto https
-		header_up X-Forwarded-Port 443
-	}
-}
+# =========================
+# Custom projects
+# =========================
+
+import /etc/caddy/conf.d/*.caddy

@@ -32,7 +32,9 @@ case "${1:-}" in
         echo "User '$2' deleted"
         ;;
     list)
-        prosodyctl mod_listusers
+        docker compose exec -T "$PROSODY_CONTAINER" \
+            sh -c 'find /config/data -path "*/meet*/accounts/*.dat" 2>/dev/null | xargs -I{} basename {} .dat' \
+            || echo "(no users found)"
         ;;
     passwd)
         [[ -z "${2:-}" || -z "${3:-}" ]] && { echo "Error: passwd requires username and password"; usage; }

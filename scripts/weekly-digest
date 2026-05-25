@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""
+scripts/weekly-digest — Send a weekly homelab health summary via Telegram.
+
+Usage: sudo ./scripts/weekly-digest
+
+Runs all checks (disks, certs, space, container updates) and sends a
+single digest message regardless of status.
+"""
+
+import subprocess
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+SCRIPT_DIR  = Path(__file__).resolve().parent
+HOMELAB_DIR = SCRIPT_DIR.parent
+
+
+def run(cmd, capture=True):
+    """Run a command, return (stdout, returncode)."""
+    try:
+        r = subprocess.run(cmd, capture_output=capture, text=True, timeout=120)
+        return r.stdout.strip(), r.returncode
+    except subprocess.TimeoutExpired:
+        return "(timed out)", 1
+    except Exception as e:
+        return str(e), 1
+
+
+def status_icon(rc):
+    return "🟢" if rc == 0 else "🔴"
+
+
+def main():
+    if "-h" in sys.argv or "--help" in sys.argv:
+        print(__doc__); sys.exit(0)
+
+    lines = [f"📊 Weekly Homelab Digest  {datetime.now().strftime('%Y-%m-%d')}"]
+    lines.append("")
+
+    # ── Disk health ───────────────────────────────────────────────────────────
+    out, rc = run(["sudo", "-n", str(SCRIPT_DIR / "check-disks")])
+    icon = status_icon(rc)
+    if rc == 0:
+        lines.append(f"{icon} Disks: all healthy")
+    else:
+        issues = [l.strip() for l in out.splitlines() if "✗" in l or "!" in l]
+        lines.append(f"{icon} Disks: {'; '.join(issues) if issues else 'issues found'}")
+
+    # ── Disk space ────────────────────────────────────────────────────────────
+    out, rc = run([str(SCRIPT_DIR / "check-space"), "--quiet"])
+    icon = status_icon(rc)
+    if rc == 0:
+        lines.append(f"{icon} Disk space: all volumes OK")
+    else:
+        vol_lines = [l.strip() for l in out.splitlines() if l.strip()]
+        lines.append(f"{icon} Disk space:\n" + "\n".join(f"  {l}" for l in vol_lines))
+
+    # ── Certificates ─────────────────────────────────────────────────────────
+    out, rc = run([str(SCRIPT_DIR / "check-certs"), "--json"])
+    icon = status_icon(rc)
+    cert_lines = []
+    for line in out.splitlines():
+        try:
+            import json
+            d = json.loads(line)
+            s = d.get("status", "ok")
+            emp = "🔴" if s == "critical" else "🟡" if s == "warning" else "🟢"
+            cert_lines.append(f"  {emp} {d['domain']}: expires {d['expires']} ({d['days_left']}d)")
+        except Exception:
+            pass
+    if cert_lines:
+        lines.append(f"{'🔴' if rc else '🟢'} Certificates:\n" + "\n".join(cert_lines))
+    else:
+        lines.append(f"{icon} Certificates: {out or 'OK'}")
+
+    # ── Container updates ─────────────────────────────────────────────────────
+    out, rc = run([str(SCRIPT_DIR / "update-images"), "--check-only"])
+    icon = status_icon(rc)
+    if rc == 0:
+        lines.append(f"{icon} Container images: all up to date")
+    else:
+        update_lines = [l for l in out.splitlines() if "update(s) available" in l]
+        summary = update_lines[0].strip() if update_lines else "updates available"
+        lines.append(f"{icon} Container images: {summary}")
+
+    # ── Container health ──────────────────────────────────────────────────────
+    out, rc = run([str(SCRIPT_DIR / "watch-containers")])
+    icon = status_icon(rc)
+    if rc == 0:
+        lines.append(f"{icon} Containers: all healthy")
+    else:
+        issue_lines = [l.strip() for l in out.splitlines() if l.strip()]
+        lines.append(f"{icon} Containers:\n" + "\n".join(f"  {l}" for l in issue_lines))
+
+    next_run = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
+    lines.append("")
+    lines.append(f"Next digest: {next_run} – 08:00")
+
+    sys.path.insert(0, str(SCRIPT_DIR))
+    from notify import send, Level
+    send(Level.DIGEST, "Weekly Homelab Digest", "\n".join(lines[1:]))
+    print("\n".join(lines))
+
+
+if __name__ == "__main__":
+    main()

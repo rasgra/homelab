@@ -1,4 +1,23 @@
 services:
+  collabora:
+    profiles: ["nextcloud"]
+    image: collabora/code:25.04.9.4.1
+    container_name: collabora
+    restart: unless-stopped
+    networks: [frontend, nextcloud-backend]
+    environment:
+      - aliasgroup1=https://nextcloud.${BASE_DOMAIN}
+      - server_name=collabora.${BASE_DOMAIN}
+      - DONT_GEN_SSL_CERT=YES
+      - extra_params=--o:ssl.enable=false --o:ssl.termination=true
+    cap_add:
+      - MKNOD
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9980/hosting/capabilities"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   nextcloud:
     profiles: ["nextcloud"]
     build: .
@@ -9,11 +28,13 @@ services:
     env_file:
       - ../.env
       - ./.env
-      - ./.env.secrets 
+      - ./.env.secrets
     depends_on:
       mariadb:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      collabora:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/status.php"]
@@ -41,7 +62,7 @@ services:
 
   mariadb:
     profiles: ["nextcloud"]
-    image: mariadb:10.11
+    image: mariadb:12.2.2
     container_name: mariadb
     restart: unless-stopped
     networks: [nextcloud-backend]
@@ -62,7 +83,7 @@ services:
 
   redis:
     profiles: ["nextcloud"]
-    image: redis:7-alpine
+    image: redis:8.6.3-alpine
     container_name: redis
     restart: unless-stopped
     networks: [nextcloud-backend]

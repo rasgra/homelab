@@ -1,27 +1,23 @@
 # Jitsi Branding
 
-Custom logo for Jitsi Meet calls.
+Custom branding files for Jitsi Meet. These are mounted directly into the container — no copying to the data directory required.
 
-## Template Files
+## Files
 
-This directory contains template branding files that are copied to `${DATA_DIR}/jitsi/branding/` during setup.
+- `watermark.svg` — Placeholder (overridden by the SVG below)
+- `stormyra-consulting-ab-white.svg` — Logo shown in top-left during calls (watermark) and on the welcome page
+- `bg.png` — Background image for the welcome page
+- `branding.json` — Dynamic branding config (references logo and background by relative URL)
 
-- `watermark.svg` - Logo shown in top-left corner during video calls
+## Updating branding
 
-## Customizing the Logo
-
-After running `./setup.sh`, edit the logo in your data directory:
+Edit or replace the files in this directory, then recreate the web container:
 
 ```bash
-# Replace with your logo
-sudo cp /path/to/your-logo.svg /opt/stack/jitsi/branding/watermark.svg
-
-# Restart Jitsi web containers
-docker compose restart web web-public
+docker compose up -d --force-recreate web
 ```
 
-## Requirements
+## Adding new branding fields
 
-- SVG format (preferred) or PNG
-- Transparent background recommended
-- Suggested dimensions: ~200px wide
+Edit `branding.json`. Supported fields include `logoImageUrl`, `backgroundImageUrl`, `backgroundColor`, and `headerLogoUrl`.
+See the [Jitsi Meet branding docs](https://jitsi.github.io/handbook/docs/dev-guide/dev-guide-branding) for the full list.
