@@ -138,20 +138,19 @@ finance.{$BASE_DOMAIN} {
 # Training
 # =========================
 
-# Internal only. The web container's nginx serves the SPA and proxies
-# /api/* to the api container inside the training-backend network.
-training.{$BASE_DOMAIN} {
+# Public via Cloudflare Tunnel. Same hostname works internally too via
+# split-horizon DNS. tls internal because the ISP blocks inbound TCP,
+# so ACME cannot reach us — Cloudflare serves the public cert at the
+# edge and connects with noTLSVerify. Training has its own login so
+# no extra auth layer is needed. The web container's nginx serves
+# the SPA and proxies /api/* to the api container.
+training.{$PUBLIC_DOMAIN} {
 	tls internal
 	import security_headers
 
-	@mgmt remote_ip {$MGMT_ALLOWED_SUBNET}
-	handle @mgmt {
-		reverse_proxy training-web:8080 {
-			import proxy_headers
-		}
+	reverse_proxy training-web:8080 {
+		import proxy_headers
 	}
-
-	respond "Training requires VPN or LAN access" 403
 }
 
 # =========================
