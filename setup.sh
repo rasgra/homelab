@@ -680,6 +680,16 @@ if command -v ufw >/dev/null 2>&1 && sudo ufw status 2>/dev/null | grep -q "^Sta
     fi
 fi
 
+# The uplink can have a smaller MTU than the docker bridges, for
+# example over WireGuard. Without MSS clamping, large downloads from
+# containers hang, like the GitHub fetch in the training-web build.
+if ! sudo cmp -s "$SCRIPT_DIR/systemd/mss-clamp.service" /etc/systemd/system/mss-clamp.service; then
+    info "Installing mss-clamp.service..."
+    sudo install -m 644 "$SCRIPT_DIR/systemd/mss-clamp.service" /etc/systemd/system/mss-clamp.service
+    sudo systemctl daemon-reload
+fi
+sudo systemctl enable --now mss-clamp.service
+
 # Ask if user wants to set up firewall
 echo
 read -p "Configure UFW firewall now? [y/N] " -n 1 -r SETUP_FIREWALL
