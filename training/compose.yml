@@ -37,6 +37,8 @@ services:
       MAX_UPLOAD_MB: "10"
       GARMIN_SYNC_INTERVAL_HOURS: "3"
       APP_BASE_URL: https://training.${BASE_DOMAIN}
+      MAP_OWNER_EMAIL: ${TRAINING_MAP_OWNER_EMAIL:-}
+      MAP_DATA_DIR: /var/lib/training/map
     depends_on:
       training-db:
         condition: service_healthy
@@ -46,6 +48,7 @@ services:
           - api
     volumes:
       - ${DATA_DIR}/training/uploads:/var/lib/training/uploads
+      - ${DATA_DIR}/training/map:/var/lib/training/map
 
   training-web:
     profiles: ["training"]
@@ -58,3 +61,9 @@ services:
     networks:
       - frontend
       - training-backend
+
+  training-pmtiles:
+    profiles: ["training-map"]
+    image: protomaps/go-pmtiles:v1.31.2
+    volumes:
+      - ${DATA_DIR}/training/map:/data

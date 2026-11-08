@@ -261,11 +261,11 @@ if [[ $PROFILES == *"finance"* ]]; then
 fi
 
 if [[ $PROFILES == *"training"* ]]; then
-    sudo mkdir -p "$DATA_DIR/training/db" "$DATA_DIR/training/uploads"
+    sudo mkdir -p "$DATA_DIR/training/db" "$DATA_DIR/training/uploads" "$DATA_DIR/training/map"
     # postgres official image runs as uid 999, api image as uid 10001.
     sudo chown -R 999:999 "$DATA_DIR/training/db"
-    sudo chown -R 10001:10001 "$DATA_DIR/training/uploads"
-    sudo chmod 750 "$DATA_DIR/training/db" "$DATA_DIR/training/uploads"
+    sudo chown -R 10001:10001 "$DATA_DIR/training/uploads" "$DATA_DIR/training/map"
+    sudo chmod 750 "$DATA_DIR/training/db" "$DATA_DIR/training/uploads" "$DATA_DIR/training/map"
 fi
 
 if [[ $PROFILES == *"homeassistant"* ]]; then
