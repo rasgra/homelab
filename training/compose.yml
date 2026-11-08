@@ -35,7 +35,7 @@ services:
       SESSION_TTL_DAYS: "14"
       UPLOAD_DIR: /var/lib/training/uploads
       MAX_UPLOAD_MB: "10"
-      GARMIN_SYNC_INTERVAL_HOURS: "3"
+      GARMIN_SYNC_INTERVAL_HOURS: ${TRAINING_GARMIN_SYNC_INTERVAL_HOURS:-3}
       APP_BASE_URL: https://training.${BASE_DOMAIN}
       MAP_OWNER_EMAIL: ${TRAINING_MAP_OWNER_EMAIL:-}
       MAP_DATA_DIR: /var/lib/training/map
