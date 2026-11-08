@@ -23,7 +23,7 @@ pmtiles() {
 	docker compose --profile training-map run --rm training-pmtiles "$@"
 }
 
-if [ "${1:-}" = "--world" ] || [ ! -f "$DATA_DIR/training/map/world.pmtiles" ]; then
+if [ "${1:-}" = "--world" ] || ! sudo test -f "$DATA_DIR/training/map/world.pmtiles"; then
 	pmtiles extract "$URL" /data/world.pmtiles.tmp --maxzoom=6
 	sudo mv "$DATA_DIR/training/map/world.pmtiles.tmp" "$DATA_DIR/training/map/world.pmtiles"
 fi
@@ -31,4 +31,4 @@ fi
 pmtiles extract "$URL" /data/detail.pmtiles.tmp --region=/data/work/regions.geojson
 sudo mv "$DATA_DIR/training/map/detail.pmtiles.tmp" "$DATA_DIR/training/map/detail.pmtiles"
 
-ls -la "$DATA_DIR/training/map"
+sudo ls -la "$DATA_DIR/training/map"
